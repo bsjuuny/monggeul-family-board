@@ -1,0 +1,16 @@
+{
+  "name": "몽글 패밀리보드",
+  "short_name": "몽글보드",
+  "description": "우리 가족의 일정, 할 일, 아이 습관을 한곳에 모으는 가족 보드",
+  "lang": "ko",
+  "dir": "ltr",
+  "start_url": "./#/",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#FFFDFB",
+  "theme_color": "#FFE8EF",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

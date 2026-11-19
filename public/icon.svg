@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="몽글 패밀리보드">
+  <rect width="512" height="512" fill="#FFE8EF"/>
+  <circle cx="256" cy="268" r="170" fill="#FFF0E2"/>
+  <circle cx="256" cy="268" r="170" fill="none" stroke="#8D3F60" stroke-width="14"/>
+  <circle cx="200" cy="244" r="20" fill="#382C38"/>
+  <circle cx="312" cy="244" r="20" fill="#382C38"/>
+  <path d="M196 310 Q256 372 316 310" fill="none" stroke="#8D3F60" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="160" cy="296" r="22" fill="#FFB9CC" opacity=".75"/>
+  <circle cx="352" cy="296" r="22" fill="#FFB9CC" opacity=".75"/>
+</svg>
