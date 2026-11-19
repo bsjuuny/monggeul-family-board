@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createHashRouter, RouterProvider, type RouteObject } from 'react-router-dom';
 import { ToastProvider } from '../ui/Toasts';
+import { FullscreenKeeper } from '../ui/Fullscreen';
 import { LoginPage } from '../pages/Auth';
 import { CalendarPage } from '../pages/Calendar';
 import { DisplayPage } from '../pages/Display';
@@ -56,6 +57,7 @@ export function App({ services }: { services: Services }) {
     <ServicesContext.Provider value={services}>
       <QueryClientProvider client={services.queryClient}>
         <ToastProvider>
+          <FullscreenKeeper />
           <RouterProvider router={router} />
         </ToastProvider>
       </QueryClientProvider>

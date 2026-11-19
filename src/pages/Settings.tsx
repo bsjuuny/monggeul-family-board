@@ -12,8 +12,35 @@ import { useMembers } from '../app/queries';
 import { useLogout } from '../app/Shell';
 import { ConfirmDialog } from '../ui/Confirm';
 import { PinDialog } from '../ui/PinDialog';
-import { AVATARS, avatarOf, EmptyBlock, HABIT_ICONS, habitIconOf, OfflineReason, QueryView } from '../ui/States';
+import { AVATAR_OPTIONS, avatarNameOf, avatarOf, EmptyBlock, HABIT_ICONS, habitIconOf, OfflineReason, QueryView } from '../ui/States';
 import { useToast } from '../ui/Toasts';
+import { enterFullscreen, fullscreenSupported, setKeepFullscreen, useIsFullscreen, useKeepFullscreen } from '../ui/Fullscreen';
+
+/** 이 기기(태블릿)의 화면 설정. 서버가 아니라 기기에 저장된다. */
+function DisplaySection() {
+  const keep = useKeepFullscreen();
+  const isFs = useIsFullscreen();
+  if (!fullscreenSupported()) return null;
+  return (
+    <Section id="set-display" title="📺 화면">
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={keep}
+          data-testid="keep-fullscreen"
+          onChange={(e) => {
+            setKeepFullscreen(e.target.checked);
+            if (e.target.checked) void enterFullscreen();
+          }}
+        />
+        이 태블릿은 항상 전체 화면으로 보기
+      </label>
+      <p className="muted" style={{ marginBottom: 0 }}>
+        주소창과 상단 알림줄을 숨겨요. 뒤로 가기 등으로 빠져나와도 화면을 한 번 터치하면 다시 전체 화면이 돼요. 지금: {isFs ? '전체 화면' : '창 모드'}
+      </p>
+    </Section>
+  );
+}
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
@@ -42,7 +69,7 @@ export function SettingsPage() {
   const [confirmBusy, setConfirmBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [childName, setChildName] = useState('');
-  const [avatar, setAvatar] = useState('bear');
+  const [avatar, setAvatar] = useState('monggeul');
   const [childErr, setChildErr] = useState<string | null>(null);
   const [habitChild, setHabitChild] = useState('');
   const [habitTitle, setHabitTitle] = useState('');
@@ -231,12 +258,12 @@ export function SettingsPage() {
 
       <Section id="set-kids" title="🧸 아이와 습관">
         <p className="muted">아이 추가·습관 변경은 부모 PIN 확인 후 할 수 있어요.</p>
-        <QueryView q={members} isEmpty={(d) => d.children.length === 0} empty={<EmptyBlock icon="🧸" title="아직 아이가 없어요" hint="아래에서 별칭으로 추가해 보세요." />}>
+        <QueryView q={members} isEmpty={(d) => d.children.length === 0} empty={<EmptyBlock title="아직 아이가 없어요" hint="아래에서 별칭으로 추가해 보세요." />}>
           {(d) => (
             <ul className="list" aria-label="아이 목록">
               {d.children.map((c) => (
                 <li key={c.id} data-testid="child-row">
-                  <span aria-hidden="true">{avatarOf(c.avatarKey)}</span>
+                  <span className="avatar xs" aria-hidden="true">{avatarOf(c.avatarKey)}</span>
                   <span className="grow">
                     {c.displayName}
                     {!c.active && <span className="chip"> 사용 안 함</span>}
@@ -283,13 +310,18 @@ export function SettingsPage() {
             </div>
             <div className="field">
               <label htmlFor="set-child-avatar">아바타</label>
-              <select id="set-child-avatar" value={avatar} onChange={(e) => setAvatar(e.target.value)}>
-                {Object.entries(AVATARS).map(([k, v]) => (
-                  <option key={k} value={k}>
-                    {v} {k}
-                  </option>
-                ))}
-              </select>
+              <div className="avatar-select-row">
+                <span className="avatar avatar-preview" role="img" aria-label={`${avatarNameOf(avatar)} 캐릭터 미리보기`}>
+                  {avatarOf(avatar)}
+                </span>
+                <select id="set-child-avatar" value={avatar} onChange={(e) => setAvatar(e.target.value)}>
+                  {AVATAR_OPTIONS.map(({ key, marker, label }) => (
+                    <option key={key} value={key}>
+                      {marker} {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
           <button type="submit" className="btn" disabled={!online}>
@@ -334,6 +366,8 @@ export function SettingsPage() {
           </button>
         </form>
       </Section>
+
+      <DisplaySection />
 
       <Section id="set-server" title="🖥️ 서버와 백업">
         <dl className="kv">

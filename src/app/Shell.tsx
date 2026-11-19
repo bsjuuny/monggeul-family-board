@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { friendlyMessage, isFamilyBoardError } from '../domain/errors';
 import { downloadJson } from '../lib/download';
 import { PinDialog } from '../ui/PinDialog';
 import { LoadingBlock } from '../ui/States';
+import { Monggeul } from '../ui/characters';
+import { FullscreenButton } from '../ui/Fullscreen';
 import { SessionProvider, useAppCtx, useOnline, useReloadFromServer, useRemoteSync, useServices, useSession } from './context';
 import { useToast } from '../ui/Toasts';
+import { todayIn } from '../domain/dates';
+import type { TaskKind } from '../domain/types';
+import { EventForm } from '../pages/Calendar';
+import { TaskForm } from '../pages/Tasks';
 
 /** 연결·동기화 상태 배너: 서버 끊김, 409 충돌(덮어쓰지 않음), 다른 기기 변경 */
 function StatusBanner() {
@@ -81,17 +87,20 @@ export function useLogout() {
 }
 
 const NAV = [
-  { to: '/', label: '홈', ico: '🏠', end: true },
-  { to: '/calendar', label: '캘린더', ico: '📅', end: false },
-  { to: '/tasks', label: '할 일', ico: '✅', end: false },
-  { to: '/kids', label: '아이', ico: '🧸', end: false },
-  { to: '/settings', label: '설정', ico: '⚙️', end: false },
+  { to: '/', label: '오늘', ariaLabel: '홈', ico: '⌂', end: true },
+  { to: '/calendar', label: '주간', ariaLabel: '캘린더', ico: '▦', end: false },
+  { to: '/tasks', label: '할 일', ariaLabel: '할 일', ico: '✓', end: false },
+  { to: '/kids', label: '아이', ariaLabel: '아이', ico: '☺', end: false },
 ];
 
 function AdultShell() {
   const s = useSession();
   const logout = useLogout();
   const toast = useToast();
+  const location = useLocation();
+  const isHome = location.pathname === '/';
+  const isKids = location.pathname.startsWith('/kids');
+  const [add, setAdd] = useState<null | 'sheet' | { type: 'event' } | { type: 'task'; kind: TaskKind }>(null);
   return (
     <div className="app">
       <a className="skip-link" href="#main">
@@ -99,12 +108,19 @@ function AdultShell() {
       </a>
       <header className="topbar">
         <div className="brand">
-          <span aria-hidden="true">🫧</span> 몽글 패밀리보드 <small>{s.familyName}</small>
+          <Monggeul className="brand-mascot" decorative /> 몽글 패밀리보드 <small>{s.familyName}</small>
         </div>
         <span className="chip" title="로그인한 계정">
           {s.displayName}
           {s.isOwner ? ' · owner' : ' · 성인'}
         </span>
+        <Link className="btn ghost small topbar-link" to="/display" aria-label="TV 화면 미리보기">
+          <span aria-hidden="true">📺</span><span className="topbar-label">TV 화면</span>
+        </Link>
+        <Link className="btn ghost small topbar-link" to="/settings" aria-label="설정">
+          <span aria-hidden="true">⚙</span><span className="topbar-label">설정</span>
+        </Link>
+        <FullscreenButton className="btn ghost small topbar-link" />
         <button
           type="button"
           className="btn secondary small"
@@ -114,21 +130,43 @@ function AdultShell() {
         </button>
       </header>
       <nav className="nav" aria-label="주요 메뉴">
-        {NAV.map((n) => (
-          <NavLink key={n.to} to={n.to} end={n.end}>
-            <span className="ico" aria-hidden="true">
-              {n.ico}
-            </span>
-            {n.label}
-          </NavLink>
-        ))}
+        <NavLink to={NAV[0]!.to} end={NAV[0]!.end} aria-label={NAV[0]!.ariaLabel}>
+          <span className="ico" aria-hidden="true">{NAV[0]!.ico}</span>{NAV[0]!.label}
+        </NavLink>
+        <NavLink to={NAV[1]!.to} end={NAV[1]!.end} aria-label={NAV[1]!.ariaLabel}>
+          <span className="ico" aria-hidden="true">{NAV[1]!.ico}</span>{NAV[1]!.label}
+        </NavLink>
+        <button type="button" className="nav-add" onClick={() => setAdd('sheet')} aria-label="추가">
+          <span className="ico" aria-hidden="true">＋</span>추가
+        </button>
+        <NavLink to={NAV[2]!.to} end={NAV[2]!.end} aria-label={NAV[2]!.ariaLabel}>
+          <span className="ico" aria-hidden="true">{NAV[2]!.ico}</span>{NAV[2]!.label}
+        </NavLink>
+        <NavLink to={NAV[3]!.to} end={NAV[3]!.end} aria-label={NAV[3]!.ariaLabel}>
+          <span className="ico" aria-hidden="true">{NAV[3]!.ico}</span>{NAV[3]!.label}
+        </NavLink>
       </nav>
-      <div>
+      <div className="shell-content">
         <StatusBanner />
-        <main id="main" className="main" tabIndex={-1}>
+        <main id="main" className={`main${isHome ? ' main-home' : ''}${isKids ? ' main-kids' : ''}`} tabIndex={-1}>
           <Outlet />
         </main>
       </div>
+      {add === 'sheet' && (
+        <div className="quick-add-choice" role="dialog" aria-modal="true" aria-label="빠른 추가">
+          <button type="button" className="quick-add-backdrop" onClick={() => setAdd(null)} aria-label="빠른 추가 닫기" />
+          <section className="quick-add-sheet">
+            <div className="quick-add-head"><strong>무엇을 추가할까요?</strong><button type="button" className="btn ghost small" onClick={() => setAdd(null)} aria-label="닫기">✕</button></div>
+            <div className="quick-add-grid">
+              <button type="button" onClick={() => setAdd({ type: 'event' })}><span aria-hidden="true">📅</span>일정</button>
+              <button type="button" onClick={() => setAdd({ type: 'task', kind: 'todo' })}><span aria-hidden="true">✓</span>할 일</button>
+              <button type="button" onClick={() => setAdd({ type: 'task', kind: 'shopping' })}><span aria-hidden="true">🛒</span>장보기</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {typeof add === 'object' && add?.type === 'event' && <EventForm date={todayIn(s.tz)} onClose={() => setAdd(null)} />}
+      {typeof add === 'object' && add?.type === 'task' && <TaskForm kind={add.kind} onClose={() => setAdd(null)} />}
     </div>
   );
 }
@@ -157,15 +195,16 @@ function KidShell() {
       </a>
       <header className="topbar">
         <div className="brand">
-          <span aria-hidden="true">🫧</span> {s.familyName} 아이 모드
+          <Monggeul className="brand-mascot" decorative /> {s.familyName} 아이 모드
         </div>
+        <FullscreenButton />
         <button type="button" className="btn secondary small" onClick={() => setAskPin(true)}>
           부모 확인 후 종료
         </button>
       </header>
-      <div>
+      <div className="shell-content">
         <StatusBanner />
-        <main id="main" className="main" tabIndex={-1}>
+        <main id="main" className="main main-kids" tabIndex={-1}>
           <Outlet />
         </main>
       </div>

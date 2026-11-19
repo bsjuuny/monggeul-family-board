@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { friendlyMessage, isFamilyBoardError } from '../domain/errors';
 import { useOnline } from '../app/context';
+import { CHARACTER_REGISTRY, characterOf, type CharacterMood } from './characters';
 
 export function LoadingBlock({ label = '불러오는 중이에요…', rows = 3 }: { label?: string; rows?: number }) {
   return (
@@ -14,11 +15,11 @@ export function LoadingBlock({ label = '불러오는 중이에요…', rows = 3 
   );
 }
 
-export function EmptyBlock({ icon = '🌱', title, hint, children }: { icon?: string; title: string; hint?: string; children?: ReactNode }) {
+export function EmptyBlock({ icon, mood = 'happy', title, hint, children }: { icon?: ReactNode; mood?: CharacterMood; title: string; hint?: string; children?: ReactNode }) {
   return (
     <div className="state" data-state="empty">
       <span className="big" aria-hidden="true">
-        {icon}
+        {icon === undefined ? avatarOf('monggeul', mood) : icon}
       </span>
       <strong>{title}</strong>
       {hint && <p className="muted">{hint}</p>}
@@ -107,6 +108,19 @@ export const AVATARS: Record<string, string> = {
   panda: '🐼',
   chick: '🐥',
 };
+const AVATAR_LABELS: Record<string, string> = {
+  bear: '곰',
+  rabbit: '토끼',
+  cat: '고양이',
+  dog: '강아지',
+  fox: '여우',
+  panda: '판다',
+  chick: '병아리',
+};
+export const AVATAR_OPTIONS = [
+  ...CHARACTER_REGISTRY.map((character) => ({ key: character.key, label: `${character.name} · ${character.kind}`, marker: '✦' })),
+  ...Object.entries(AVATARS).map(([key, marker]) => ({ key, label: `이모지 ${AVATAR_LABELS[key] ?? key}`, marker })),
+];
 export const HABIT_ICONS: Record<string, string> = {
   tooth: '🪥',
   book: '📚',
@@ -116,5 +130,15 @@ export const HABIT_ICONS: Record<string, string> = {
   bed: '🛏️',
   shirt: '👕',
 };
-export const avatarOf = (k: string) => AVATARS[k] ?? '🙂';
+export function avatarOf(key: string, mood: CharacterMood = 'happy'): ReactNode {
+  const character = characterOf(key);
+  if (character) {
+    const Character = character.Component;
+    return <Character mood={mood} decorative />;
+  }
+  return AVATARS[key] ?? '🙂';
+}
+export function avatarNameOf(key: string): string {
+  return characterOf(key)?.name ?? AVATAR_LABELS[key] ?? '웃는 얼굴';
+}
 export const habitIconOf = (k: string) => HABIT_ICONS[k] ?? '⭐';

@@ -5,7 +5,7 @@ import { isValidDate, todayIn } from '../domain/dates';
 import { DEFAULT_TIMEZONE } from '../domain/types';
 import { validateChildName, validateFamilyName, validatePin, validateText } from '../domain/validation';
 import { newId } from '../lib/crypto';
-import { AVATARS, LoadingBlock } from '../ui/States';
+import { AVATAR_OPTIONS, avatarNameOf, avatarOf, LoadingBlock } from '../ui/States';
 import { useAppCtx, useOnline, usePageTitle, useServices } from '../app/context';
 
 type StepKey = 'family' | 'pin' | 'child' | 'task' | 'event';
@@ -20,7 +20,7 @@ export function SetupPage() {
   const [familyName, setFamilyName] = useState('');
   const [pin, setPin] = useState('');
   const [childName, setChildName] = useState('');
-  const [avatar, setAvatar] = useState('bear');
+  const [avatar, setAvatar] = useState('monggeul');
   const [taskTitle, setTaskTitle] = useState('');
   const [eventTitle, setEventTitle] = useState('');
   const [eventDate, setEventDate] = useState('');
@@ -131,13 +131,18 @@ export function SetupPage() {
             </div>
             <div className="field">
               <label htmlFor="child-avatar">아바타</label>
-              <select id="child-avatar" value={avatar} onChange={(e) => setAvatar(e.target.value)}>
-                {Object.entries(AVATARS).map(([k, v]) => (
-                  <option key={k} value={k}>
-                    {v} {k}
-                  </option>
-                ))}
-              </select>
+              <div className="avatar-select-row">
+                <span className="avatar avatar-preview" role="img" aria-label={`${avatarNameOf(avatar)} 캐릭터 미리보기`}>
+                  {avatarOf(avatar)}
+                </span>
+                <select id="child-avatar" value={avatar} onChange={(e) => setAvatar(e.target.value)}>
+                  {AVATAR_OPTIONS.map(({ key, marker, label }) => (
+                    <option key={key} value={key}>
+                      {marker} {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </fieldset>
           <div className="field">

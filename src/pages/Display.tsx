@@ -1,47 +1,79 @@
 import { useEffect } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { addDays, formatKoreanDate, formatTimeRangeKo, isoToZoned, todayIn } from '../domain/dates';
+import { addDays, eventCoversDate, formatKoreanDate, isoToZoned, todayIn, weekdayKo, weekdayOf } from '../domain/dates';
 import { isFamilyBoardError } from '../domain/errors';
-import { DEFAULT_TIMEZONE, type TvDisplayData } from '../domain/types';
+import { DEFAULT_TIMEZONE, type Task, type TvDisplayData } from '../domain/types';
 import { useAppCtx, useNow, useOnline, usePageTitle, useRemoteSync, useServices } from '../app/context';
-import { EmptyBlock, ErrorBlock, LoadingBlock } from '../ui/States';
+import { ErrorBlock, LoadingBlock, avatarOf } from '../ui/States';
+import { FullscreenButton } from '../ui/Fullscreen';
+import { habitDone } from './Kids';
 
 const REFRESH_MS = 5 * 60 * 1000;
 
-/** 어른 로그인 상태의 미리보기: TV와 같은 allowlist(가족 공개 일정, 미완료 할 일, 습관 개수)만 만든다. */
-async function previewBoard(repo: ReturnType<typeof useServices>['repo'], familyName: string, tz: string): Promise<TvDisplayData> {
+type DisplayChild = { id: string; displayName: string; avatarKey: string; done: number; total: number; habits: string[]; pending: number };
+type DisplayData = TvDisplayData & { childDetails?: DisplayChild[]; taskDetails?: Task[] };
+
+async function previewBoard(repo: ReturnType<typeof useServices>['repo'], familyName: string, tz: string): Promise<DisplayData> {
   const today = todayIn(tz);
-  const [events, tasks, members] = await Promise.all([repo.getEvents({ from: today, to: addDays(today, 2) }), repo.getTasks({ completed: false }), repo.getMembers()]);
-  const kids = members.children.filter((c) => c.active);
-  const habitLists = await Promise.all(kids.map((c) => repo.getHabits(c.id, today)));
+  const [events, tasks, members] = await Promise.all([repo.getEvents({ from: today, to: today }), repo.getTasks(), repo.getMembers()]);
+  const children = members.children.filter((child) => child.active);
+  const habitLists = await Promise.all(children.map((child) => repo.getHabits(child.id, today)));
   const all = habitLists.flat();
   return {
     familyName,
     today,
     serverTime: new Date().toISOString(),
-    events: events
-      .filter((e) => e.visibility === 'family')
-      .slice(0, 12)
-      .map((e) => ({ id: e.id, title: e.title, allDay: e.allDay, startDate: e.startDate, endDate: e.endDate, startsAt: e.startsAt, endsAt: e.endsAt })),
-    tasks: tasks.slice(0, 12).map((t) => ({ id: t.id, title: t.title, kind: t.kind, dueAt: t.dueAt })),
-    habits: { done: all.filter((h) => h.record && h.record.state !== 'rejected').length, total: all.length },
+    events: events.filter((event) => event.visibility === 'family').slice(0, 12).map((event) => ({ id: event.id, title: event.title, allDay: event.allDay, startDate: event.startDate, endDate: event.endDate, startsAt: event.startsAt, endsAt: event.endsAt })),
+    tasks: tasks.slice(0, 12).map((task) => ({ id: task.id, title: task.title, kind: task.kind, dueAt: task.dueAt })),
+    taskDetails: tasks,
+    habits: { done: all.filter(habitDone).length, total: all.length },
+    childDetails: children.map((child, index) => ({ id: child.id, displayName: child.displayName, avatarKey: child.avatarKey, done: (habitLists[index] ?? []).filter(habitDone).length, total: habitLists[index]?.length ?? 0, habits: (habitLists[index] ?? []).map((habit) => habit.title), pending: (habitLists[index] ?? []).filter((habit) => habit.record?.state === 'pending').length })),
   };
 }
 
-/** F-06: TV 화면은 로그인 세션이 필요한 읽기 전용 전체 화면이다. 서버 문서의 변경은 5초 내 자동 반영한다. */
+function mondayOf(date: string) {
+  const day = weekdayOf(date);
+  return addDays(date, day === 0 ? -6 : 1 - day);
+}
+
+function DisplayWeek({ today }: { today: string }) {
+  const monday = mondayOf(today);
+  return <div className="display-week" aria-label="이번 주">{Array.from({ length: 7 }, (_, index) => addDays(monday, index)).map((date) => <div key={date} className={`${date === today ? 'is-today' : ''}${weekdayOf(date) === 0 ? ' is-sunday' : ''}`}><span>{weekdayKo(date)}</span><strong>{Number(date.slice(8))}</strong></div>)}</div>;
+}
+
+function displayEventTime(event: DisplayData['events'][number], tz: string) {
+  if (event.allDay || !event.startsAt) return '종일';
+  return isoToZoned(event.startsAt, tz).time;
+}
+
+function DisplayKids({ data }: { data: DisplayData }) {
+  const children = data.childDetails;
+  if (!children) {
+    const percentage = data.habits.total ? Math.round((data.habits.done / data.habits.total) * 100) : 0;
+    return <div className="display-kid display-kid-generic"><span className="display-character" aria-hidden="true">{avatarOf('monggeul', percentage === 100 && data.habits.total > 0 ? 'cheer' : 'happy')}</span><div><h3>오늘 습관</h3><p>TV 기기의 가족 습관 합계</p><div className="progress-bar"><i style={{ width: `${percentage}%` }} /></div></div><strong>{data.habits.done}/{data.habits.total}</strong></div>;
+  }
+  if (!children.length) return <div className="display-kids-empty"><span aria-hidden="true">{avatarOf('monggeul', 'sleepy')}</span><strong>첫 습관을 기다리고 있어요</strong></div>;
+  if (children.length === 1) {
+    const child = children[0] as DisplayChild;
+    const percentage = child.total ? Math.round((child.done / child.total) * 100) : 0;
+    return <div className="display-kid is-single"><span className="display-character" role="img" aria-label={`${child.displayName}의 캐릭터`}>{avatarOf(child.avatarKey, child.total > 0 && child.done === child.total ? 'cheer' : 'happy')}</span><div><span>★ 오늘의 별 {child.done}개</span><h3>{child.displayName}</h3><p>{child.habits.slice(0, 3).join(' · ') || '습관 설정 전'}</p><div className="progress-bar"><i style={{ width: `${percentage}%` }} /></div>{child.pending > 0 && <small>부모님 확인 대기 {child.pending}건</small>}</div><strong>{child.done}/{child.total}</strong></div>;
+  }
+  return <div className={`display-kid-list${children.length > 2 ? ' is-grid' : ''}`}>{children.map((child) => { const percentage = child.total ? Math.round((child.done / child.total) * 100) : 0; return <div className="display-kid" key={child.id}><span className="display-character" role="img" aria-label={`${child.displayName}의 캐릭터`}>{avatarOf(child.avatarKey, child.total > 0 && child.done === child.total ? 'cheer' : 'happy')}</span><div><h3>{child.displayName}</h3><p>{child.habits.slice(0, 3).join(' · ')}</p><div className="progress-bar"><i style={{ width: `${percentage}%` }} /></div></div><strong>{child.done}/{child.total}</strong></div>; })}</div>;
+}
+
 export function DisplayPage() {
   usePageTitle('TV 화면');
   const { repo, deviceStore, queryClient } = useServices();
   const navigate = useNavigate();
   const online = useOnline();
-  const ctx = useAppCtx();
-  useRemoteSync(true); // 읽기 전용 화면: 다른 기기의 변경을 자동 반영
+  const context = useAppCtx();
+  useRemoteSync(true);
   const now = useNow(1000);
   const tv = deviceStore.get('tv');
-  const adult = ctx.data?.kind === 'adult' && ctx.data.family ? ctx.data : null;
+  const adult = context.data?.kind === 'adult' && context.data.family ? context.data : null;
   const enabled = Boolean(tv) || Boolean(adult);
-  const q = useQuery<TvDisplayData>({
+  const query = useQuery<DisplayData>({
     queryKey: ['display', tv ? 'device' : 'adult', adult?.family?.id ?? ''],
     queryFn: () => (tv ? repo.getTvBoardData(tv.token) : previewBoard(repo, adult?.family?.name ?? '', adult?.family?.timezone ?? DEFAULT_TIMEZONE)),
     enabled,
@@ -50,108 +82,41 @@ export function DisplayPage() {
     staleTime: 0,
   });
 
-  // 기기 철회/만료 → token 삭제 후 페어링 화면
   useEffect(() => {
-    if (tv && isFamilyBoardError(q.error) && q.error.code === 'TOKEN_REVOKED') {
+    if (tv && isFamilyBoardError(query.error) && query.error.code === 'TOKEN_REVOKED') {
       deviceStore.clear('tv');
       void queryClient.invalidateQueries({ queryKey: ['ctx'] });
       navigate('/login', { replace: true });
     }
-  }, [q.error, tv, deviceStore, queryClient, navigate]);
+  }, [query.error, tv, deviceStore, queryClient, navigate]);
 
-  if (!tv && ctx.isPending) {
-    return (
-      <div className="center">
-        <LoadingBlock label="확인하는 중이에요…" />
-      </div>
-    );
-  }
+  if (!tv && context.isPending) return <div className="center"><LoadingBlock label="확인하는 중이에요…" /></div>;
   if (!tv && !adult) {
-    if (ctx.data?.kind === 'device') return <Navigate to="/kids" replace />;
-    return <Navigate to={ctx.data?.kind === 'adult' ? '/setup' : '/login'} state={{ next: '/display' }} replace />;
+    if (context.data?.kind === 'device') return <Navigate to="/kids" replace />;
+    return <Navigate to={context.data?.kind === 'adult' ? '/setup' : '/login'} state={{ next: '/display' }} replace />;
   }
 
   const tz = adult?.family?.timezone ?? DEFAULT_TIMEZONE;
   const time = isoToZoned(now.toISOString(), tz).time;
-  const d = q.data;
-  const today = d?.today ?? todayIn(tz, now);
+  const data = query.data;
+  const today = data?.today ?? todayIn(tz, now);
+  const events = (data?.events ?? []).filter((event) => eventCoversDate(event, today, tz)).sort((a, b) => (a.startsAt ?? '').localeCompare(b.startsAt ?? '')).slice(0, 3);
+  const next = events.find((event) => !event.endsAt || new Date(event.endsAt).getTime() > now.getTime());
+  const details = data?.taskDetails;
+  const todo = (details ?? data?.tasks ?? []).filter((task) => task.kind === 'todo').slice(0, 5);
+  const shopping = (details ?? data?.tasks ?? []).filter((task) => task.kind === 'shopping' && !('completedAt' in task && task.completedAt)).slice(0, 3);
+
   return (
-    <div className="tv" data-testid="tv-display">
-      <header className="tv-head">
-        <div>
-          <div className="tv-date">{formatKoreanDate(today)}</div>
-          <div className="tv-clock" aria-label={`현재 시각 ${time}`}>
-            {time}
-          </div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <strong style={{ fontSize: 'clamp(1.2rem, 2.6vw, 2.4rem)' }}>🫧 {d?.familyName ?? ''}</strong>
-          {!online && <div className="chip warn">📴 오프라인 · 마지막 내용이에요</div>}
-          {adult && (
-            <div className="no-print">
-              <Link className="btn secondary small" to="/">
-                ← 앱으로 돌아가기
-              </Link>
-            </div>
-          )}
-        </div>
-      </header>
-      <main className="tv-body" id="main">
-        {q.isPending && !d ? (
-          <LoadingBlock label="오늘 정보를 불러오는 중이에요…" rows={4} />
-        ) : !d ? (
-          <ErrorBlock error={q.error} onRetry={() => void q.refetch()} />
-        ) : (
-          <>
-            <section className="card mint" aria-labelledby="tv-events">
-              <h2 id="tv-events">📅 앞으로 일정</h2>
-              {d.events.length === 0 ? (
-                <EmptyBlock icon="🌤️" title="오늘은 일정이 없어요" />
-              ) : (
-                <ul className="list" aria-label="가족 일정">
-                  {d.events.map((e) => (
-                    <li key={e.id} data-testid="tv-event">
-                      <span className="grow">{e.title}</span>
-                      <span className="chip">
-                        {e.allDay && e.startDate && e.startDate !== d.today ? `${e.startDate.slice(5).replace('-', '/')} ` : ''}
-                        {formatTimeRangeKo(e, tz)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-            <div className="stack">
-              <section className="card pink" aria-labelledby="tv-tasks">
-                <h2 id="tv-tasks">✅ 남은 할 일</h2>
-                {d.tasks.length === 0 ? (
-                  <EmptyBlock icon="🎉" title="모두 끝냈어요!" />
-                ) : (
-                  <ul className="list" aria-label="남은 할 일">
-                    {d.tasks.map((t) => (
-                      <li key={t.id} data-testid="tv-task">
-                        <span className="grow">
-                          {t.kind === 'shopping' ? '🛒 ' : ''}
-                          {t.title}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-              <section className="card peach" aria-labelledby="tv-habits">
-                <h2 id="tv-habits">🧸 오늘 습관</h2>
-                <p style={{ fontSize: 'clamp(1.2rem, 2.4vw, 2.2rem)', marginBottom: 0 }}>
-                  {d.habits.total === 0 ? '등록된 습관이 없어요' : `${d.habits.done} / ${d.habits.total} 했어요`}
-                </p>
-              </section>
-            </div>
-          </>
-        )}
+    <div className="tv concept-seven-display" data-testid="tv-display">
+      <header className="display-head"><div className="display-brand"><span>MONGGEUL FAMILY</span><h1>{weekdayKo(today)}요일의 흐름</h1></div><DisplayWeek today={today} /><div className="display-clock"><strong>{time}</strong><span>{formatKoreanDate(today)}</span></div><div className="display-tools no-print"><FullscreenButton className="btn secondary small" />{adult && <Link className="btn secondary small" to="/">앱으로 돌아가기</Link>}</div></header>
+      <main className="display-grid" id="main">
+        {query.isPending && !data ? <LoadingBlock label="오늘 정보를 불러오는 중이에요…" rows={4} /> : !data ? <ErrorBlock error={query.error} onRetry={() => void query.refetch()} /> : <>
+          <section className="display-card display-timeline" aria-labelledby="tv-events"><div className="display-section-head"><h2 id="tv-events">오늘 타임라인</h2><span>일정 {events.length}</span></div>{events.length ? <ol>{events.map((event) => { const past = Boolean(event.endsAt && new Date(event.endsAt).getTime() <= now.getTime()); const isNext = next?.id === event.id; return <li key={event.id} data-testid="tv-event" className={`${past ? 'is-past' : ''}${isNext ? ' is-next' : ''}`}><time>{displayEventTime(event, tz)}<small>{past ? '지난 일정' : isNext ? 'NEXT' : '예정'}</small></time><i aria-hidden="true" /><div><span>{isNext ? '다음' : past ? '완료' : '오늘'}</span><h3>{event.title}</h3>{isNext && event.startsAt && <strong>{Math.max(0, Math.round((new Date(event.startsAt).getTime() - now.getTime()) / 60_000))}분 후</strong>}</div></li>; })}</ol> : <div className="display-empty"><span aria-hidden="true">{avatarOf('monggeul', 'sleepy')}</span><h3>오늘은 가족 마음대로</h3><p>정해진 일정 없이 천천히 쉬어 가요.</p></div>}</section>
+          <div className="display-middle"><section className="display-card display-tasks" aria-labelledby="tv-tasks"><div className="display-section-head"><h2 id="tv-tasks">할 일</h2><span>{todo.filter((task) => 'completedAt' in task && task.completedAt).length} / {todo.length} 완료</span></div><ul aria-label="남은 할 일">{todo.map((task) => { const done = 'completedAt' in task && Boolean(task.completedAt); return <li key={task.id} data-testid="tv-task" className={done ? 'is-done' : ''}><i>{done ? '✓' : ''}</i><span>{task.title}</span></li>; })}</ul>{todo.length === 0 && <p className="display-compact-empty">오늘 할 일은 비어 있어요 ✓</p>}</section><section className="display-card display-shopping"><div className="display-section-head"><h2>장보기</h2><span>{shopping.length}개</span></div>{shopping.map((task) => <div className="display-shopping-row" key={task.id}>{task.title}<b>{'quantity' in task && task.quantity != null ? `${String(task.quantity)}${'unit' in task ? String(task.unit ?? '') : ''}` : ''}</b></div>)}{shopping.length === 0 && <p>냉장고 준비 완료 ✓</p>}</section></div>
+          <section className="display-card display-kids" aria-labelledby="tv-habits"><div className="display-section-head"><h2 id="tv-habits">아이 습관</h2><span>오늘</span></div><DisplayKids data={data} /></section>
+        </>}
       </main>
-      <footer className="tv-foot">
-        {q.dataUpdatedAt ? `${isoToZoned(new Date(q.dataUpdatedAt).toISOString(), tz).time} 기준 · 5분마다 새로고침해요` : '불러오는 중…'}
-      </footer>
+      <footer className="display-foot">{!online ? '오프라인 · 마지막으로 받은 내용이에요' : `${data?.familyName ?? ''} · 5분마다 새로고침해요`}</footer>
     </div>
   );
 }
