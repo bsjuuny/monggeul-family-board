@@ -833,3 +833,22 @@ fieldset { min-width: 0; padding: 0; margin: 0 0 var(--space-3); border: 0; }
   .single-kid-tile > em { display: none; }
   .single-kid-tile { grid-template-rows: 1fr; }
 }
+
+/* ---- 문서(페이지) 스크롤 방식: 안드로이드 크롬에서 가장 확실하게 스크롤된다 ----
+   홈/아이 화면만 화면 높이에 맞추고, 나머지는 페이지 자체가 스크롤된다. */
+html, body, #root { height: auto; min-height: 100%; }
+body { overflow-x: hidden; overflow-y: auto; }
+.app { --chrome-h: 150px; height: auto; min-height: 100vh; min-height: 100dvh; overflow: visible; }
+.kid-shell { --chrome-h: 58px; }
+.topbar { position: sticky; top: 0; z-index: 25; }
+.shell-content { overflow: visible; }
+.main { height: auto; overflow: visible; overscroll-behavior: auto; }
+.main-home, .main-kids { height: calc(100vh - var(--chrome-h)); height: calc(100dvh - var(--chrome-h)); min-height: 560px; overflow: visible; }
+@media (min-width: 1050px) and (max-height: 900px) {
+  .app { --chrome-h: 58px; }
+  .nav { position: sticky; top: 58px; left: auto; right: auto; bottom: auto; align-self: start; height: calc(100vh - 58px); height: calc(100dvh - 58px); }
+}
+@media (max-width: 600px) {
+  .app { --chrome-h: 128px; }
+  .kid-shell { --chrome-h: 52px; }
+}
