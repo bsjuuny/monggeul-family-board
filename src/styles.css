@@ -560,7 +560,7 @@ fieldset { min-width: 0; padding: 0; margin: 0 0 var(--space-3); border: 0; }
 @keyframes character-cheer { 0%,100% { transform: translateY(0) scale(1); } 45% { transform: translateY(-7px) scale(1.04); } 65% { transform: translateY(-2px) scale(.98); } }
 
 /* 가로 태블릿: 사이드 내비게이션 */
-@media (orientation: landscape) and (min-width: 900px) and (min-height: 600px) {
+@media (orientation: landscape) and (min-width: 900px) and (min-height: 460px) {
   .app { grid-template-columns: 84px minmax(0, 1fr); grid-template-rows: 58px minmax(0, 1fr); padding-bottom: 0; }
   .topbar { grid-column: 1 / -1; }
   .nav { position: static; grid-column: 1; grid-row: 2; width: 84px; height: 100%; padding: 9px 7px; border-radius: 0 24px 24px 0; grid-template-columns: 1fr; grid-template-rows: repeat(5, 70px); align-content: center; }
@@ -845,7 +845,7 @@ body { overflow-x: hidden; overflow-y: auto; }
 .shell-content { overflow: visible; }
 .main { height: auto; overflow: visible; overscroll-behavior: auto; }
 .main-home, .main-kids { height: calc(100vh - var(--chrome-h)); height: calc(100dvh - var(--chrome-h)); min-height: 560px; overflow: visible; }
-@media (orientation: landscape) and (min-width: 900px) and (min-height: 600px) {
+@media (orientation: landscape) and (min-width: 900px) and (min-height: 460px) {
   .app { --chrome-h: 58px; }
   .nav { position: sticky; top: 58px; left: auto; right: auto; bottom: auto; align-self: start; height: calc(100vh - 58px); height: calc(100dvh - 58px); }
 }
@@ -856,7 +856,7 @@ body { overflow-x: hidden; overflow-y: auto; }
 
 /* 아이 화면: 습관이 많거나 화면이 짧으면 잘리지 않고 페이지가 길어져 스크롤된다 */
 .app { --main-pad-y: 40px; }
-@media (orientation: landscape) and (min-width: 900px) and (min-height: 600px) { .app { --main-pad-y: 22px; } }
+@media (orientation: landscape) and (min-width: 900px) and (min-height: 460px) { .app { --main-pad-y: 22px; } }
 @media (max-width: 600px) { .app { --main-pad-y: 15px; } }
 .main-kids { height: auto; min-height: calc(100vh - var(--chrome-h)); min-height: calc(100dvh - var(--chrome-h)); }
 .main-kids > .single-kid-screen, .main-kids > .multi-kids-screen, .main-kids > .many-kids-screen, .main-kids > .kid-picker {
@@ -886,3 +886,4 @@ body { overflow-x: hidden; overflow-y: auto; }
   .display-week strong { font-size: 17px; white-space: nowrap; }
 }
 .habit-previews > b { padding: 4px 2px; color: #286b73; font-size: 13px; font-weight: 850; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.star-chip { z-index: 2; white-space: nowrap; }

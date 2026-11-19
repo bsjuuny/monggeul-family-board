@@ -130,15 +130,25 @@ export const HABIT_ICONS: Record<string, string> = {
   bed: '🛏️',
   shirt: '👕',
 };
+// 예전 이모지 아바타로 만든 아이도 같은 동물의 스티커 캐릭터로 보여 준다
+const LEGACY_TO_CHARACTER: Record<string, string> = { rabbit: 'bodeuli', bear: 'pogeuni', cat: 'nabi', chick: 'jjokkomi' };
+function resolveCharacter(key: string) {
+  return characterOf(key) ?? characterOf(LEGACY_TO_CHARACTER[key] ?? '');
+}
 export function avatarOf(key: string, mood: CharacterMood = 'happy'): ReactNode {
-  const character = characterOf(key);
+  const character = resolveCharacter(key);
   if (character) {
     const Character = character.Component;
     return <Character mood={mood} decorative />;
   }
-  return AVATARS[key] ?? '🙂';
+  // 캐릭터가 없는 이모지는 SVG로 감싸서 캐릭터 자리 크기에 맞게 커지게 한다
+  return (
+    <svg viewBox="0 0 200 200" className="character character--emoji" aria-hidden="true">
+      <text x="100" y="105" fontSize="140" textAnchor="middle" dominantBaseline="middle">{AVATARS[key] ?? '🙂'}</text>
+    </svg>
+  );
 }
 export function avatarNameOf(key: string): string {
-  return characterOf(key)?.name ?? AVATAR_LABELS[key] ?? '웃는 얼굴';
+  return resolveCharacter(key)?.name ?? AVATAR_LABELS[key] ?? '웃는 얼굴';
 }
 export const habitIconOf = (k: string) => HABIT_ICONS[k] ?? '⭐';
