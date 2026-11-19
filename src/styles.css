@@ -124,7 +124,7 @@ fieldset { min-width: 0; padding: 0; margin: 0 0 var(--space-3); border: 0; }
 .seg button[aria-pressed='true'] { background: var(--color-violet); color: #fff; }
 
 /* 앱 셸 */
-.app { height: 100dvh; min-height: 0; overflow: hidden; display: grid; grid-template-rows: 58px minmax(0, 1fr); padding-bottom: 92px; }
+.app { height: 100%; height: 100dvh; min-height: 0; overflow: hidden; display: grid; grid-template-rows: 58px minmax(0, 1fr); padding-bottom: 92px; }
 .topbar {
   display: flex; align-items: center; gap: 6px; min-width: 0; padding: 7px 16px;
   background: rgba(248, 247, 253, .94); border-bottom: 1px solid rgba(223, 220, 235, .75); backdrop-filter: blur(16px);
@@ -149,8 +149,8 @@ fieldset { min-width: 0; padding: 0; margin: 0 0 var(--space-3); border: 0; }
 .nav-add .ico { width: 36px; height: 36px; display: grid; place-items: center; margin-top: -9px; border-radius: 50%; background: var(--color-coral); color: #fff; font-size: 24px; box-shadow: 0 5px 13px rgba(255, 130, 115, .32); }
 .shell-content { min-width: 0; min-height: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .shell-content > .main { grid-row: 2; }
-.main { width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: 1440px; margin: 0 auto; padding: 18px 28px 22px; overflow: auto; }
-.main-home, .main-kids { overflow: hidden; }
+.main { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: 1440px; margin: 0 auto; padding: 18px 28px 22px; overflow: auto; }
+.main-home, .main-kids { overflow-x: hidden; overflow-y: auto; }
 .kid-shell { padding-bottom: 0; }
 .kid-shell .main { max-width: 1000px; }
 .kid-shell .topbar { background: rgba(25, 27, 49, .96); color: #fff; border: 0; }
@@ -430,7 +430,7 @@ fieldset { min-width: 0; padding: 0; margin: 0 0 var(--space-3); border: 0; }
 .banner.offline { background: var(--color-pending-bg); color: var(--warn); border-bottom: 1px solid var(--color-pending-line); }
 .banner.sync { background: var(--color-aqua); color: var(--ok); border-bottom: 1px solid #bfe0cd; }
 .overlay { position: fixed; z-index: 100; inset: 0; padding: 12px; background: rgba(25,27,49,.58); display: grid; place-items: center; }
-.modal { width: min(560px, 100%); max-height: calc(100dvh - 24px); overflow: auto; padding: 20px; border-radius: 22px; background: var(--color-bg-top); box-shadow: 0 24px 80px rgba(25,27,49,.32); }
+.modal { width: min(560px, 100%); max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow: auto; padding: 20px; border-radius: 22px; background: var(--color-bg-top); box-shadow: 0 24px 80px rgba(25,27,49,.32); }
 .modal.wide { width: min(760px, 100%); }
 .modal h2 { margin-bottom: 12px; }
 .compare { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
@@ -478,13 +478,13 @@ fieldset { min-width: 0; padding: 0; margin: 0 0 var(--space-3); border: 0; }
 .avatar-select-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
 .avatar-preview { width: 62px; height: 62px; }
 .auth-card { width: min(480px, 100%); }
-.center { width: 100%; height: 100dvh; overflow: auto; padding: 20px; display: grid; place-items: center; }
+.center { width: 100%; height: 100%; height: 100dvh; overflow: auto; padding: 20px; display: grid; place-items: center; }
 .center .auth-card { padding: 26px; background: rgba(255,255,255,.94); }
 .center .auth-card h1 { font-size: 30px; }
 .otp { font-size: 26px; letter-spacing: .5em; text-align: center; font-variant-numeric: tabular-nums; }
 
 /* TV */
-.concept-seven-display { position: relative; width: 100%; height: 100dvh; min-height: 0; overflow: hidden; padding: 20px 24px 18px; background: linear-gradient(180deg, var(--color-bg-top), var(--color-bg-bottom)); display: grid; grid-template-rows: 78px minmax(0, 1fr) 16px; gap: 7px; }
+.concept-seven-display { position: relative; width: 100%; height: 100%; height: 100dvh; min-height: 0; overflow: hidden; padding: 20px 24px 18px; background: linear-gradient(180deg, var(--color-bg-top), var(--color-bg-bottom)); display: grid; grid-template-rows: 78px minmax(0, 1fr) 16px; gap: 7px; }
 .display-head { position: relative; min-width: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr) 230px; align-items: center; gap: 18px; }
 .display-brand span { color: #7d7694; font-size: 13px; font-weight: 850; letter-spacing: .14em; }
 .display-brand h1 { margin: 2px 0 0; font-size: 29px; }
