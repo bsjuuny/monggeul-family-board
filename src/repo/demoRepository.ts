@@ -1028,7 +1028,7 @@ export class DemoRepository implements FullRepository {
       .map((t) => ({ id: t.id, title: t.title, kind: t.kind, dueAt: t.dueAt }));
     const activeChildren = new Set(s.children.filter((c) => c.familyId === d.familyId && c.active).map((c) => c.id));
     const templates = s.habitTemplates.filter((h) => h.familyId === d.familyId && h.active && activeChildren.has(h.childId));
-    const done = templates.filter((h) => s.habitRecords.some((r) => r.habitId === h.id && r.localDate === today && r.state !== 'rejected')).length;
+    const done = templates.filter((h) => s.habitRecords.some((r) => r.habitId === h.id && r.localDate === today && (r.state === 'done' || r.state === 'approved'))).length;
     return { familyName: fam.name, today, serverTime: this.nowIso(), events, tasks, habits: { done, total: templates.length } };
   }
 

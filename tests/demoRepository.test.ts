@@ -346,7 +346,10 @@ describe('TV (F-06, AC-08)', () => {
     await owner.repo.createEvent({ title: '개인 비밀 일정', allDay: true, startDate: '2026-11-19', endDate: '2026-11-19', visibility: 'private' }, uuid());
     await owner.repo.createTask({ kind: 'todo', title: '쓰레기 버리기' }, uuid());
     const { habit } = await withChild(owner);
-    await owner.repo.checkHabit(habit.id, '2026-11-19', iso('02:00'), uuid());
+    // 승인이 필요한 습관은 아이가 체크만 한 상태(pending)에서는 완료로 세지 않는다
+    const rec = await owner.repo.checkHabit(habit.id, '2026-11-19', iso('02:00'), uuid());
+    expect(rec.state).toBe('pending');
+    await owner.repo.approveHabit(rec.id);
 
     const code = await owner.repo.createPairingCode('tv');
     const tv = owner.otherBrowser();

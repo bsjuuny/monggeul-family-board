@@ -158,7 +158,7 @@ export function TaskForm({ initial, kind, onClose }: { initial?: Task; kind: Tas
   );
 }
 
-export function TaskRow({ task, onEdit, onDelete }: { task: Task; onEdit?: (t: Task) => void; onDelete?: (t: Task) => void }) {
+export function TaskRow({ task, onEdit, onDelete, compact = false }: { task: Task; onEdit?: (t: Task) => void; onDelete?: (t: Task) => void; compact?: boolean }) {
   const { tz } = useSession();
   const { toggle, busy } = useToggleTask();
   const members = useMembers();
@@ -180,9 +180,16 @@ export function TaskRow({ task, onEdit, onDelete }: { task: Task; onEdit?: (t: T
           )}
         </span>
       </label>
-      {who && <span className="chip">👤 {who}</span>}
-      {task.dueAt && <span className="chip">⏰ {isoToZoned(task.dueAt, tz).date.slice(5).replace('-', '/')}까지</span>}
-      {done && <span className="chip ok">✔ 완료</span>}
+      {compact ? (
+        // 홈 카드: 담당자(없으면 기한) 하나만 작게
+        !done && (who || task.dueAt) && <span className="chip mini">{who ? who : `~${isoToZoned(task.dueAt as string, tz).date.slice(5).replace('-', '/')}`}</span>
+      ) : (
+        <>
+          {who && <span className="chip">👤 {who}</span>}
+          {task.dueAt && <span className="chip">⏰ {isoToZoned(task.dueAt, tz).date.slice(5).replace('-', '/')}까지</span>}
+          {done && <span className="chip ok">✔ 완료</span>}
+        </>
+      )}
       {onEdit && (
         <button type="button" className="btn ghost small" onClick={() => onEdit(task)} disabled={!online} aria-label={`${task.title} 수정`}>
           수정

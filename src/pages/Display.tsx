@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { addDays, eventCoversDate, formatKoreanDate, isoToZoned, todayIn, weekdayKo, weekdayOf } from '../domain/dates';
 import { isFamilyBoardError } from '../domain/errors';
+import { countdownKo, eventTimeOn, findNextEvent, isEventPast, pickVisibleEvents, sortEvents, sortTasks, tasksForToday } from '../domain/schedule';
 import { DEFAULT_TIMEZONE, type Task, type TvDisplayData } from '../domain/types';
 import { useAppCtx, useNow, useOnline, usePageTitle, useRemoteSync, useServices } from '../app/context';
 import { ErrorBlock, LoadingBlock, avatarOf } from '../ui/States';
@@ -40,11 +41,6 @@ function mondayOf(date: string) {
 function DisplayWeek({ today }: { today: string }) {
   const monday = mondayOf(today);
   return <div className="display-week" aria-label="이번 주">{Array.from({ length: 7 }, (_, index) => addDays(monday, index)).map((date) => <div key={date} className={`${date === today ? 'is-today' : ''}${weekdayOf(date) === 0 ? ' is-sunday' : ''}`}><span>{weekdayKo(date)}</span><strong>{Number(date.slice(8))}</strong></div>)}</div>;
-}
-
-function displayEventTime(event: DisplayData['events'][number], tz: string) {
-  if (event.allDay || !event.startsAt) return '종일';
-  return isoToZoned(event.startsAt, tz).time;
 }
 
 function DisplayKids({ data }: { data: DisplayData }) {
@@ -100,10 +96,13 @@ export function DisplayPage() {
   const time = isoToZoned(now.toISOString(), tz).time;
   const data = query.data;
   const today = data?.today ?? todayIn(tz, now);
-  const events = (data?.events ?? []).filter((event) => eventCoversDate(event, today, tz)).sort((a, b) => (a.startsAt ?? '').localeCompare(b.startsAt ?? '')).slice(0, 3);
-  const next = events.find((event) => !event.endsAt || new Date(event.endsAt).getTime() > now.getTime());
+  const todaysEvents = sortEvents((data?.events ?? []).filter((event) => eventCoversDate(event, today, tz)));
+  const next = findNextEvent(todaysEvents, now);
+  const events = pickVisibleEvents(todaysEvents, next, 3);
   const details = data?.taskDetails;
-  const todo = (details ?? data?.tasks ?? []).filter((task) => task.kind === 'todo').slice(0, 5);
+  const todo = details
+    ? sortTasks(tasksForToday(details.filter((task) => task.kind === 'todo'), today, tz)).slice(0, 5)
+    : [...(data?.tasks ?? [])].filter((task) => task.kind === 'todo').sort((a, b) => (a.dueAt ?? '9999').localeCompare(b.dueAt ?? '9999')).slice(0, 5);
   const shopping = (details ?? data?.tasks ?? []).filter((task) => task.kind === 'shopping' && !('completedAt' in task && task.completedAt)).slice(0, 3);
 
   return (
@@ -111,7 +110,7 @@ export function DisplayPage() {
       <header className="display-head"><div className="display-brand"><span>MONGGEUL FAMILY</span><h1>{weekdayKo(today)}요일의 흐름</h1></div><DisplayWeek today={today} /><div className="display-clock"><strong>{time}</strong><span>{formatKoreanDate(today)}</span></div><div className="display-tools no-print"><FullscreenButton className="btn secondary small" />{adult && <Link className="btn secondary small" to="/">앱으로 돌아가기</Link>}</div></header>
       <main className="display-grid" id="main">
         {query.isPending && !data ? <LoadingBlock label="오늘 정보를 불러오는 중이에요…" rows={4} /> : !data ? <ErrorBlock error={query.error} onRetry={() => void query.refetch()} /> : <>
-          <section className="display-card display-timeline" aria-labelledby="tv-events"><div className="display-section-head"><h2 id="tv-events">오늘 타임라인</h2><span>일정 {events.length}</span></div>{events.length ? <ol>{events.map((event) => { const past = Boolean(event.endsAt && new Date(event.endsAt).getTime() <= now.getTime()); const isNext = next?.id === event.id; return <li key={event.id} data-testid="tv-event" className={`${past ? 'is-past' : ''}${isNext ? ' is-next' : ''}`}><time>{displayEventTime(event, tz)}<small>{past ? '지난 일정' : isNext ? 'NEXT' : '예정'}</small></time><i aria-hidden="true" /><div><span>{isNext ? '다음' : past ? '완료' : '오늘'}</span><h3>{event.title}</h3>{isNext && event.startsAt && <strong>{Math.max(0, Math.round((new Date(event.startsAt).getTime() - now.getTime()) / 60_000))}분 후</strong>}</div></li>; })}</ol> : <div className="display-empty"><span aria-hidden="true">{avatarOf('monggeul', 'sleepy')}</span><h3>오늘은 가족 마음대로</h3><p>정해진 일정 없이 천천히 쉬어 가요.</p></div>}</section>
+          <section className="display-card display-timeline" aria-labelledby="tv-events"><div className="display-section-head"><h2 id="tv-events">오늘 타임라인</h2><span>일정 {todaysEvents.length}</span></div>{events.length ? <ol>{events.map((event) => { const past = isEventPast(event, now); const isNext = next?.id === event.id; return <li key={event.id} data-testid="tv-event" className={`${past ? 'is-past' : ''}${isNext ? ' is-next' : ''}`}><time>{eventTimeOn(event, today, tz).time}<small>{past ? '지난 일정' : isNext ? 'NEXT' : '예정'}</small></time><i aria-hidden="true" /><div><span>{isNext ? '다음' : past ? '완료' : '오늘'}</span><h3>{event.title}</h3>{isNext && event.startsAt && <strong>{countdownKo(event.startsAt, now)}</strong>}</div></li>; })}</ol> : <div className="display-empty"><span aria-hidden="true">{avatarOf('monggeul', 'sleepy')}</span><h3>오늘은 가족 마음대로</h3><p>정해진 일정 없이 천천히 쉬어 가요.</p></div>}</section>
           <div className="display-middle"><section className="display-card display-tasks" aria-labelledby="tv-tasks"><div className="display-section-head"><h2 id="tv-tasks">할 일</h2><span>{todo.filter((task) => 'completedAt' in task && task.completedAt).length} / {todo.length} 완료</span></div><ul aria-label="남은 할 일">{todo.map((task) => { const done = 'completedAt' in task && Boolean(task.completedAt); return <li key={task.id} data-testid="tv-task" className={done ? 'is-done' : ''}><i>{done ? '✓' : ''}</i><span>{task.title}</span></li>; })}</ul>{todo.length === 0 && <p className="display-compact-empty">오늘 할 일은 비어 있어요 ✓</p>}</section><section className="display-card display-shopping"><div className="display-section-head"><h2>장보기</h2><span>{shopping.length}개</span></div>{shopping.map((task) => <div className="display-shopping-row" key={task.id}>{task.title}<b>{'quantity' in task && task.quantity != null ? `${String(task.quantity)}${'unit' in task ? String(task.unit ?? '') : ''}` : ''}</b></div>)}{shopping.length === 0 && <p>냉장고 준비 완료 ✓</p>}</section></div>
           <section className="display-card display-kids" aria-labelledby="tv-habits"><div className="display-section-head"><h2 id="tv-habits">아이 습관</h2><span>오늘</span></div><DisplayKids data={data} /></section>
         </>}
