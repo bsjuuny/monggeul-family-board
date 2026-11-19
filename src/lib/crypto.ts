@@ -43,8 +43,17 @@ export function randomDigits(n: number): string {
   return out;
 }
 
+/**
+ * UUID v4. crypto.randomUUID 는 보안 컨텍스트(HTTPS/localhost)에서만 있으므로
+ * http://192.168.x.x 같은 LAN 접속에서는 getRandomValues 로 직접 만든다.
+ */
 export function newId(): string {
-  return crypto.randomUUID();
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const b = randomBytes(16);
+  b[6] = ((b[6] as number) & 0x0f) | 0x40;
+  b[8] = ((b[8] as number) & 0x3f) | 0x80;
+  const h = toHex(b);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
 export function stableStringify(value: unknown): string {

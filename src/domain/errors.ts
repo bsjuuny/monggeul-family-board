@@ -1,5 +1,7 @@
 // 명세 §7 오류 코드와 응답 envelope
 
+import { newId } from '../lib/crypto';
+
 export const ERROR_CODES = [
   'VALIDATION_ERROR',
   'UNAUTHENTICATED',
@@ -44,7 +46,7 @@ export function isFamilyBoardError(e: unknown): e is FamilyBoardError {
 }
 
 export function newRequestId(): string {
-  return globalThis.crypto.randomUUID();
+  return newId();
 }
 
 export interface ApiMeta {
