@@ -31,6 +31,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (/\/api(\/|$)/.test(url.pathname)) return; // API(로그인·가족 데이터)는 절대 캐시하지 않는다
+  if (/\/sw\.js$/.test(url.pathname)) return; // 버전 확인용: 늘 서버에서 받는다
   if (req.mode === 'navigate') {
     // 네트워크 우선, 실패하면 캐시된 앱 셸
     event.respondWith(

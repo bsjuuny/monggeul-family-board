@@ -257,8 +257,13 @@ export function NoticeDetailPage() {
       if (kind === 'confirm') return v2.confirmNotice(n.id, n.version);
       if (kind === 'dismiss') return v2.confirmNotice(n.id, n.version, true);
       if (kind === 'save') return v2.updateNotice(n.id, n.version, editing as NoticeDigest);
+      // 캘린더 정리를 먼저 한다. 실패하면 공지를 지우지 않는다(연결 일정이 고아로 남지 않게)
+      try {
+        await syncNoticeCalendar(v2, repo, n.id, false, true);
+      } catch {
+        throw new Error('CALENDAR_CLEANUP');
+      }
       await v2.deleteNotice(n.id);
-      await syncNoticeCalendar(v2, repo, n.id, false).catch(() => undefined);
       return null;
     },
     onSuccess: async (_r, kind) => {
@@ -270,6 +275,10 @@ export function NoticeDetailPage() {
       if (kind === 'dismiss') await calendar(false);
     },
     onError: async (e) => {
+      if (e instanceof Error && e.message === 'CALENDAR_CLEANUP') {
+        toast.error('캘린더 일정을 정리하지 못해 공지를 지우지 않았어요. 연결 상태를 확인한 뒤 다시 시도해 주세요.');
+        return;
+      }
       if (isFamilyBoardError(e) && e.code === 'VERSION_CONFLICT') {
         // 다른 기기가 먼저 바꿨다: 내 편집안으로 덮어쓰지 않도록 편집을 닫고 최신 내용을 다시 보여 준다
         setEditing(null);
@@ -317,7 +326,7 @@ export function NoticeDetailPage() {
           <ul className="list">{history.map((h, i) => <li key={i}>{new Date(h.at).toLocaleString('ko-KR')} · {h.actor} · {({ create: '저장', edit: '수정', edit_before: '수정 전', confirmed: '확인', dismissed: '숨김', delete: '삭제', analyzed: '분석', source_update: '원본 갱신', source_changed: '원본 바뀜(보호자 수정 유지)' } as Record<string, string>)[h.action] ?? h.action}</li>)}</ul>
         </section>
       )}
-      {confirmDelete && <ConfirmDialog title="공지를 지울까요?" message="공지와 여기서 만든 준비물·등하원 변경이 보드에서 사라져요. 캘린더에 이미 추가한 일정은 남아요." confirmLabel="지우기" danger busy={act.isPending}
+      {confirmDelete && <ConfirmDialog title="공지를 지울까요?" message="공지와 여기서 만든 준비물·등하원 변경이 보드에서 사라져요. 이 공지로 캘린더에 넣은 일정도 지워요(캘린더에서 직접 고친 일정은 남겨요)." confirmLabel="지우기" danger busy={act.isPending}
         onConfirm={() => act.mutate('delete')} onClose={() => setConfirmDelete(false)} />}
     </div>
   );

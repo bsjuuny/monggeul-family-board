@@ -43,7 +43,7 @@ git checkout main && npm ci && npm run build   # v1 코드로 돌아가기
 
 1. 보호자 휴대폰으로 `http://<태블릿 IP>:8787` 접속·로그인
 2. **설정 → 날씨 지역**: 동네 선택(또는 위도·경도)
-3. 태블릿 Termux에서 기상청 키 저장: `python tablet_server/app.py --set-weather-key`
+3. 기상청 키 저장: **설정 → 날씨 지역 → 기상청 서비스 키**에 붙여넣고 "확인하고 저장"(owner). 저장 전에 기상청에 한 번 시험 호출해 틀린 키는 저장하지 않는다. (Termux에서 `python tablet_server/app.py --set-weather-key` 로도 가능)
    - 공공데이터포털 "기상청_단기예보 조회서비스" 활용 신청이 된 **Decoding 키**. 키는 `~/monggeul-family-board-data/kma_key.txt`(권한 600)에만 저장되고 로그·화면에 나오지 않는다.
    - 무료 API다. 서버는 10분마다 발표 시각이 바뀌었을 때만 부른다(하루 약 30~40회).
 4. **설정 → 등하원 시간**: 아이별 요일·집 출발·도착·하원·기본 픽업 담당

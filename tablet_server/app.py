@@ -41,7 +41,7 @@ import board_store as bs  # noqa: E402
 import kidsnote  # noqa: E402
 import migrations  # noqa: E402
 from analyzer_bridge import NodeAnalyzer  # noqa: E402
-from weather import WeatherService, latlon_to_grid, save_key  # noqa: E402
+from weather import WeatherService, delete_key, key_source, latlon_to_grid, save_key  # noqa: E402
 
 SCHEMA_VERSION = 1  # 기본 테이블(v1) 버전. 이후 변경은 migrations.py 가 올린다.
 PBKDF2_ITERATIONS = 310_000
@@ -567,6 +567,7 @@ class Handler(BaseHTTPRequestHandler):
         s = bs.get_settings(conn)
         loc = s.get("location")
         s["weatherKeyConfigured"] = self.server.weather.key_configured()
+        s["weatherKeySource"] = key_source(self.server.config.db_path.parent)
         if loc:
             s["location"] = {**loc, "grid": list(latlon_to_grid(loc["lat"], loc["lon"]))}
         self._send_json(200, s)
@@ -581,6 +582,37 @@ class Handler(BaseHTTPRequestHandler):
         res = bs.put_setting(conn, key, body.get("value"), body.get("baseVersion"), p["actor"])
         audit(conn, p["actor"], "settings", key)
         self._send_json(200, res)
+
+    def _weather_key_put(self, conn, query) -> None:
+        """owner 가 설정 화면에서 기상청 키를 넣는다. 먼저 시험 호출하고, 키가 틀리면 저장하지 않는다. 키는 응답·로그에 남기지 않는다."""
+        p = self._user(conn)
+        if p["user"]["role"] != "owner":
+            raise ApiError(403, "FORBIDDEN", "기상청 키는 owner만 넣을 수 있어요.")
+        body = self._read_json()
+        key = body.get("key") if isinstance(body, dict) else None
+        if not isinstance(key, str) or not key.strip() or len(key.strip()) > 400 or any(c.isspace() for c in key.strip()):
+            raise ApiError(400, "VALIDATION_ERROR", "공공데이터포털에서 받은 서비스 키(Decoding 키)를 그대로 붙여넣어 주세요.")
+        loc = bs.get_settings(conn)["location"]
+        nx, ny = latlon_to_grid(loc["lat"], loc["lon"]) if loc else (60, 127)
+        result, message = self.server.weather.test_key(key.strip(), nx, ny)
+        if result == "invalid":
+            audit(conn, p["actor"], "weather_key_rejected")
+            raise ApiError(400, "WEATHER_KEY_INVALID", f"{message} 키를 저장하지 않았어요.")
+        save_key(self.server.config.db_path.parent, key.strip())
+        self.server.weather.reset_failures()
+        if loc:
+            self.server.weather.refresh(conn, nx, ny, force=True)
+        audit(conn, p["actor"], "weather_key_set", result)
+        self._send_json(200, {"saved": True, "check": result,
+                              "message": message if result == "ok" else f"키는 저장했어요. 다만 지금은 기상청에 연결하지 못했어요({message}). 태블릿 인터넷을 확인해 주세요."})
+
+    def _weather_key_delete(self, conn, query) -> None:
+        p = self._user(conn)
+        if p["user"]["role"] != "owner":
+            raise ApiError(403, "FORBIDDEN", "기상청 키는 owner만 지울 수 있어요.")
+        removed = delete_key(self.server.config.db_path.parent)
+        audit(conn, p["actor"], "weather_key_deleted")
+        self._send_json(200, {"removed": removed})
 
     # ───── v2: TV 기기 ─────
     def _pairing_create(self, conn, query) -> None:
@@ -1000,6 +1032,8 @@ ROUTES: List[Tuple[str, "re.Pattern[str]", str]] = [
         ("POST", r"/api/restore", "_restore"),
         ("GET", r"/api/settings", "_settings_get"),
         ("PUT", r"/api/settings/(location|commute|screen|notices|kidsnote|tvPrivacy)", "_settings_put"),
+        ("PUT", r"/api/weather-key", "_weather_key_put"),
+        ("DELETE", r"/api/weather-key", "_weather_key_delete"),
         ("POST", r"/api/devices/pairing-codes", "_pairing_create"),
         ("POST", r"/api/devices/pair", "_pair"),
         ("GET", r"/api/devices", "_devices_list"),

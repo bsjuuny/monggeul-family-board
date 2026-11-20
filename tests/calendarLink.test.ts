@@ -95,6 +95,13 @@ describe('공지 행사 ↔ 캘린더', () => {
     expect(link).toHaveBeenCalledWith('nev1', null);
   });
 
+  it('공지 삭제(removeAll): 연결 일정을 먼저 정리한다', async () => {
+    const old = { title: '숲 체험', date: today, endDate: null, time: null };
+    const { v2, repo } = setup([row({ calendarEventId: 'cal1', calendarSnapshot: old })], [cal()]);
+    expect((await syncNoticeCalendar(v2, repo, 'n1', false, true)).removed).toBe(1);
+    expect(repo.deleteEvent).toHaveBeenCalledWith('cal1', 3);
+  });
+
   it('시각이 있으면 한 시간짜리 시간 일정으로 만든다', () => {
     const e = toNewEvent({ title: '참관 수업', date: '2026-11-21', endDate: null, time: '10:30' });
     expect(e).toMatchObject({ allDay: false, startsAt: '2026-11-21T01:30:00.000Z', endsAt: '2026-11-21T02:30:00.000Z' });

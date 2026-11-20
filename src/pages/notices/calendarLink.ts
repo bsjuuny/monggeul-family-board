@@ -44,7 +44,7 @@ export interface LinkResult {
 }
 
 /** 한 공지의 행사들을 캘린더와 맞춘다. createMissing=false 이면 새로 만들지 않고 갱신·정리만 한다. */
-export async function syncNoticeCalendar(v2: V2, repo: FullRepository, noticeId: string, createMissing: boolean): Promise<LinkResult> {
+export async function syncNoticeCalendar(v2: V2, repo: FullRepository, noticeId: string, createMissing: boolean, removeAll = false): Promise<LinkResult> {
   const res: LinkResult = { created: 0, updated: 0, removed: 0, keptUserEdits: 0 };
   const { events } = await v2.noticeEventsOf(noticeId);
   if (!events.length) return res;
@@ -53,7 +53,7 @@ export async function syncNoticeCalendar(v2: V2, repo: FullRepository, noticeId:
     const want = snapOf(ev);
     const linked = ev.calendarEventId ? cal.find((c) => c.id === ev.calendarEventId) : undefined;
     const userEdited = Boolean(linked && ev.calendarSnapshot && !same(calSnap(linked), ev.calendarSnapshot));
-    if (ev.deleted) {
+    if (ev.deleted || removeAll) {
       if (!ev.calendarEventId) continue;
       if (linked && !userEdited) {
         await repo.deleteEvent(linked.id, linked.version);

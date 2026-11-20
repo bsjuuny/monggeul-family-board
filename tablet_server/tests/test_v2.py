@@ -130,6 +130,8 @@ class V2Server(unittest.TestCase):
             self.fetch_calls.append(op)
             if getattr(self, "weather_fail", False):
                 raise weather.WeatherError("연결 실패")
+            if key == "bad-key":
+                raise weather.WeatherError("기상청 서비스 키가 등록되지 않았거나 이 API 활용 신청이 안 되어 있어요.")
             return fake_kma(op, params)
         return fetch
 
@@ -557,6 +559,39 @@ class ReviewFixTests(V2Server):
         self.assertEqual(len(live), 1)
         self.assertEqual((live[0]["id"], live[0]["date"], live[0]["calendarEventId"]), (ev["id"], "2026-11-26", "cal_1"))
 
+    def test_legacy_date_keyed_event_row_keeps_calendar_link(self):
+        _, res, _ = self.owner.request("POST", "/api/notices", notice_body("행사", "2026-11-20", digest("발표회", event="2026-11-25")))
+        n = res["notice"]
+        conn = app.connect(self.db)  # 예전 형식(날짜 기반) 키로 되돌려 둔다
+        legacy = bs._key(n["id"], "ev", "2026-11-25")
+        conn.execute("UPDATE notice_events SET item_key = ?, calendar_event_id = 'cal_old', calendar_snapshot = ? WHERE notice_id = ?",
+                     (legacy, json.dumps({"title": "발표회", "date": "2026-11-25", "endDate": None, "time": None}), n["id"]))
+        row_id = conn.execute("SELECT id FROM notice_events WHERE notice_id = ?", (n["id"],)).fetchone()[0]
+        conn.close()
+        self.owner.request("PUT", f"/api/notices/{n['id']}", {"baseVersion": n["version"], "digest": digest("발표회", event="2026-11-27")})
+        _, evs, _ = self.owner.request("GET", f"/api/notice-events?noticeId={n['id']}")
+        self.assertEqual([(e["id"], e["date"], e["calendarEventId"], e["deleted"]) for e in evs["events"]], [(row_id, "2026-11-27", "cal_old", False)])
+
+    def test_weather_key_entry_owner_only_tested_and_never_echoed(self):
+        mom = self.login("mom", ADULT_PW)
+        st, _, _ = mom.request("PUT", "/api/weather-key", {"key": "good-key"})
+        self.assertEqual(st, 403)
+        st, err, _ = self.owner.request("PUT", "/api/weather-key", {"key": "bad-key"})
+        self.assertEqual((st, err["error"]["code"]), (400, "WEATHER_KEY_INVALID"))
+        self.assertFalse((self.db.parent / "kma_key.txt").exists())  # 틀린 키는 저장하지 않는다
+        with mock.patch.dict("os.environ", {"MGFB_KMA_KEY": ""}):
+            st, res, _ = self.owner.request("PUT", "/api/weather-key", {"key": "good-key-123"})
+            self.assertEqual((st, res["check"]), (200, "ok"))
+            self.assertNotIn("good-key-123", json.dumps(res))
+            _, s, _ = self.owner.request("GET", "/api/settings")
+            self.assertEqual((s["weatherKeyConfigured"], s["weatherKeySource"]), (True, "file"))
+            self.assertNotIn("good-key-123", json.dumps(s))
+            st, _, _ = self.owner.request("DELETE", "/api/weather-key")
+            _, s, _ = self.owner.request("GET", "/api/settings")
+            self.assertFalse(s["weatherKeyConfigured"])
+        st, _, _ = self.owner.request("PUT", "/api/weather-key", {"key": "has space"})
+        self.assertEqual(st, 400)
+
     def test_non_owner_cannot_force_store_original(self):
         mom = self.login("mom", ADULT_PW)
         _, res, _ = mom.request("POST", "/api/notices", {**notice_body("원문", "2026-11-20", digest()), "storeOriginal": True})
@@ -744,6 +779,12 @@ class WeatherReviewTests(unittest.TestCase):
                 snap2 = svc.snapshot(conn, {"name": "x", "lat": 37.5665, "lon": 126.978}, "2026-11-20", None, None, "08:30", "15:00")
                 conn.close()
             self.assertEqual(len(snap["tomorrowAdvice"]), 2)  # 오늘은 휴원(시각 없음)이어도 내일 하원 예보를 쓴다
+            with mock.patch.dict("os.environ", {"MGFB_KMA_KEY": "k"}):
+                conn = app.connect(db)
+                only_drop = svc.snapshot(conn, {"name": "x", "lat": 37.5665, "lon": 126.978}, "2026-11-20", "08:30", "16:30", "08:30", None)
+                conn.close()
+            # 내일 하원 시각이 없으면 오늘 하원 시각(16:30)으로 대신하지 않고 내일 등원 예보만 쓴다
+            self.assertEqual(only_drop["tomorrowAdvice"], weather.advice(only_drop["tomorrow"]["dropoff"], None))
             self.assertTrue(snap2["stale"])
             self.assertGreaterEqual(snap2["ageMinutes"], 8 * 60)  # 오래된 단기예보 기준
 

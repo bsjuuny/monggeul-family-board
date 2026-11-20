@@ -483,10 +483,19 @@ def _apply_derived(conn: sqlite3.Connection, notice_id: str, dg: Dict[str, Any],
         elif not cur["user_edited"]:
             conn.execute("UPDATE commute_exceptions SET needs_review=?, end_date=?, note=?, deleted_at=NULL, updated_at=? WHERE id=?",
                          (1 if review else 0, e["endDate"], e["note"], stamp, cur["id"]))
+    new_keys = {_key(notice_id, "ev", i) for i in range(len(d["events"]))}
+    spare = [r for r in conn.execute("SELECT id, item_key, date FROM notice_events WHERE notice_id = ? ORDER BY created_at, id", (notice_id,)).fetchall()
+             if r["item_key"] not in new_keys]
     for i, ev in enumerate(d["events"]):
         k = _key(notice_id, "ev", i)
         keep_ev.add(k)
         cur = conn.execute("SELECT id FROM notice_events WHERE item_key = ?", (k,)).fetchone()
+        if cur is None and spare:
+            # 이 키가 처음이면 예전 형식 행(날짜 기반 키)을 이어받아 캘린더 연결을 유지한다
+            old = next((r for r in spare if r["date"] == ev["date"]), spare[0])
+            spare.remove(old)
+            conn.execute("UPDATE notice_events SET item_key = ? WHERE id = ?", (k, old["id"]))
+            cur = conn.execute("SELECT id FROM notice_events WHERE id = ?", (old["id"],)).fetchone()
         if cur is None:
             conn.execute("INSERT INTO notice_events(id, item_key, notice_id, date, end_date, time, title, kind, needs_review, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                          (new_id("nev"), k, notice_id, ev["date"], ev["endDate"], ev["time"], ev["title"], ev["kind"], 1 if review else 0, stamp, stamp))

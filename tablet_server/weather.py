@@ -91,6 +91,21 @@ def save_key(data_dir: Path, key: str) -> Path:
     return f
 
 
+def delete_key(data_dir: Path) -> bool:
+    f = data_dir / "kma_key.txt"
+    if f.is_file():
+        f.unlink()
+        return True
+    return False
+
+
+def key_source(data_dir: Path) -> Optional[str]:
+    """'env'(환경변수) | 'file'(설정 화면·CLI로 저장) | None"""
+    if os.environ.get("MGFB_KMA_KEY", "").strip():
+        return "env"
+    return "file" if (data_dir / "kma_key.txt").is_file() else None
+
+
 def http_fetcher(key: str, timeout: float = 8.0) -> Fetcher:
     def fetch(op: str, params: Dict[str, str]) -> Dict[str, Any]:
         q = {"serviceKey": key, "pageNo": "1", "numOfRows": "1000", "dataType": "JSON", **params}
@@ -249,6 +264,23 @@ class WeatherService:
     def key_configured(self) -> bool:
         return load_key(self.data_dir) is not None
 
+    def test_key(self, key: str, nx: int = 60, ny: int = 127) -> Tuple[str, str]:
+        """새 키로 초단기실황을 한 번 불러 본다. ('ok'|'invalid'|'unreachable', 안내 문구). 키는 문구에 넣지 않는다."""
+        try:
+            bd, bt = ncst_base(self.clock())
+            _items(self.fetcher_factory(key)("getUltraSrtNcst", {"base_date": bd, "base_time": bt, "nx": str(nx), "ny": str(ny)}))
+            return "ok", "기상청에서 날씨를 받아 왔어요."
+        except WeatherError as e:
+            msg = str(e)
+            if "서비스 키" in msg or "SERVICE" in msg.upper() or "오류: 30" in msg or "오류: 20" in msg or "오류: 31" in msg:
+                return "invalid", msg
+            return "unreachable", msg
+
+    def reset_failures(self) -> None:
+        with self._lock:
+            self._last_fail.clear()
+            self._last_error.clear()
+
     def _cached(self, conn: sqlite3.Connection, kind: str, grid: str) -> Optional[sqlite3.Row]:
         return conn.execute("SELECT * FROM weather_cache WHERE kind = ? AND grid = ?", (kind, grid)).fetchone()
 
@@ -358,7 +390,7 @@ class WeatherService:
             "configured": True, "available": True, "location": location.get("name"),
             "current": current, "today": day(today), "tomorrow": {**day(tomorrow), "dropoff": t_drop},
             "dropoff": drop, "pickup": pick,
-            "advice": advice(drop, pick), "tomorrowAdvice": advice(t_drop, at(tomorrow, tomorrow_pickup_at or pickup_at)),
+            "advice": advice(drop, pick), "tomorrowAdvice": advice(t_drop, at(tomorrow, tomorrow_pickup_at)),
             "hourly": [{"at": k, **hours[k], "condition": condition_ko(hours[k].get("sky"), hours[k].get("pty"))} for k in upcoming],
             "updatedAt": datetime.fromtimestamp(fetched, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "stale": stale, "ageMinutes": ages.get("fcst", ages.get("ncst")),
