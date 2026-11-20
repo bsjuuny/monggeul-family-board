@@ -6,6 +6,7 @@ import type { FullRepository } from '../repo/repository';
 import { ServerBackedRepository } from '../repo/serverRepository';
 import { DeviceStore, MemoryStorage, UnlockStore } from '../repo/stores';
 import { ServerApi } from '../server/api';
+import { v2, type V2 } from '../server/v2';
 
 export type AdapterKind = 'server';
 
@@ -15,6 +16,8 @@ export interface Services {
   repo: FullRepository;
   server: ServerBackedRepository;
   api: ServerApi;
+  /** v2 API(보드·공지·준비물·등하원·TV 기기) */
+  v2: V2;
   deviceStore: DeviceStore;
   unlockStore: UnlockStore;
   /** 이전 버전이 남긴 로컬 대기열/캐시 삭제용 (서버 모드는 로컬 대기열을 쓰지 않는다) */
@@ -58,5 +61,5 @@ export function createServices(opts: ServiceOptions = {}): Services {
   const queryClient = createQueryClient(() => void queryClientRef?.invalidateQueries({ queryKey: ['ctx'] }));
   queryClientRef = queryClient;
   const server = new ServerBackedRepository(api, unlockStore, onSessionLost);
-  return { adapter: 'server', repo: server.repo, server, api, deviceStore, unlockStore, outbox, cache, queryClient };
+  return { adapter: 'server', repo: server.repo, server, api, v2: v2(api), deviceStore, unlockStore, outbox, cache, queryClient };
 }

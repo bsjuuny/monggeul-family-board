@@ -27,8 +27,13 @@ async function enter(page: Page, who = OWNER) {
   await expect(homeHeading).toBeVisible();
 }
 
+/** 새로고침 없이 화면만 옮긴다(서버 문서 version 은 메모리에 그대로) */
+async function go(page: Page, path: string) {
+  await page.evaluate((h) => { window.location.hash = h; }, path);
+}
+
 async function addTask(page: Page, title: string) {
-  await page.getByRole('link', { name: '할 일', exact: true }).click();
+  await go(page, '/tasks');
   await page.getByRole('button', { name: /할 일 추가/ }).first().click();
   await page.getByLabel('제목 (1~120자)').fill(title);
   await page.getByRole('button', { name: '저장', exact: true }).click();
@@ -41,14 +46,22 @@ async function newPage(browser: Browser) {
 
 test('F-01 로그인 후 가족을 만들고 주요 화면을 탐색한다', async ({ page }) => {
   await enter(page);
-  await expect(page.getByText('몽글 패밀리보드').first()).toBeVisible();
-  await page.getByRole('link', { name: '캘린더', exact: true }).click();
+  await expect(page.getByTestId('v2-board')).toBeVisible();
+  await page.getByTestId('board-menu').click();
+  await page.getByRole('dialog', { name: '메뉴' }).getByRole('link', { name: '캘린더' }).click();
   await expect(page.getByRole('heading', { name: '캘린더' })).toBeVisible();
-  await page.getByRole('link', { name: '할 일', exact: true }).click();
+  await go(page, '/tasks');
   await expect(page.getByRole('heading', { name: '할 일 · 장보기' })).toBeVisible();
-  await page.getByRole('link', { name: '아이', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '아이' })).toBeVisible();
+  await go(page, '/kids');
+  // 아이가 한 명이면 '서윤의 오늘'처럼 아이 이름이 제목이 된다(다른 테스트가 아이를 넣을 수 있다)
+  await expect(page.getByRole('heading', { level: 1, name: /아이|의 오늘/ })).toBeVisible();
   await page.getByRole('link', { name: '설정', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '설정' })).toBeVisible();
+  await page.getByRole('link', { name: '공지', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '공지 정리' })).toBeVisible();
+  await page.getByRole('link', { name: '준비물·픽업', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '준비물·픽업' })).toBeVisible();
+  await go(page, '/settings');
   await expect(page.getByRole('heading', { name: '설정' })).toBeVisible();
   await expect(page.getByTestId('server-status')).toContainText('연결됨');
 });
@@ -56,7 +69,7 @@ test('F-01 로그인 후 가족을 만들고 주요 화면을 탐색한다', asy
 test('각 기준 뷰포트에서 가로 오버플로가 없다', async ({ page }) => {
   await enter(page);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
-  await page.getByRole('link', { name: '설정', exact: true }).click();
+  await go(page, '/settings');
   await expect(page.getByRole('heading', { name: '설정' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
 });
@@ -88,14 +101,15 @@ test('데이터는 서버에 저장되고 새로고침(hash route)·재접속 �
   expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('mgfb:demo')))).toEqual([]);
   const other = await newPage(browser); // 다른 기기
   await enter(other.page, MOM);
-  await other.page.getByRole('link', { name: '할 일', exact: true }).click();
+  await go(other.page, '/tasks');
   await expect(other.page.getByText(title)).toBeVisible();
   await other.ctx.close();
 });
 
 test('로그아웃하면 로그인 화면으로 가고 서버 세션이 폐기된다', async ({ page }) => {
   await enter(page);
-  await page.getByRole('button', { name: '로그아웃' }).click();
+  await go(page, '/settings');
+  await page.getByRole('button', { name: '로그아웃' }).first().click();
   await expect(page).toHaveURL(/#\/login$/);
   const res = await page.request.get('/api/me');
   expect(res.status()).toBe(401);
@@ -103,9 +117,15 @@ test('로그아웃하면 로그인 화면으로 가고 서버 세션이 폐기�
 
 test('TV 미리보기에는 공개 정보만 표시한다', async ({ page }) => {
   await enter(page);
+  const st = await (await page.request.get('/api/state')).json();
+  st.data.events.push({ id: 'ev-private', familyId: st.data.families[0].id, createdBy: 'x', title: '비공개 깜짝 선물', allDay: true,
+    startDate: new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10), endDate: new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10),
+    startsAt: null, endsAt: null, visibility: 'private', note: null, version: 1, createdAt: '2026-11-01T00:00:00Z', updatedAt: '2026-11-01T00:00:00Z' });
+  expect((await page.request.put('/api/state', { data: { baseVersion: st.version, data: st.data } })).status()).toBe(200);
+  await go(page, '/settings');
   await page.getByRole('link', { name: /TV 화면 미리보기/ }).click();
   await expect(page.getByTestId('tv-display')).toBeVisible();
-  await expect(page.getByText('비공개')).toHaveCount(0);
+  await expect(page.getByText('비공개 깜짝 선물')).toHaveCount(0);
 });
 
 test('409 충돌: 다른 기기가 먼저 저장하면 덮어쓰지 않고 충돌 UI와 내 JSON 백업을 보여 준다', async ({ browser }, info) => {
@@ -147,22 +167,22 @@ test('owner는 JSON 백업·복원을 할 수 있고 일반 성인은 할 수 �
   test.skip(info.project.name !== 'desktop-1024', '한 뷰포트에서만 실행');
   const o = await newPage(browser);
   await enter(o.page, OWNER);
-  await o.page.getByRole('link', { name: '설정', exact: true }).click();
+  await go(o.page, '/settings');
   const [dl] = await Promise.all([o.page.waitForEvent('download'), o.page.getByRole('button', { name: 'JSON 백업 내려받기' }).click()]);
   const backupPath = await dl.path();
   const stamp = `복원전후-${Date.now()}`;
   await addTask(o.page, stamp);
   await expect(o.page.getByText(stamp)).toBeVisible();
-  await o.page.getByRole('link', { name: '설정', exact: true }).click();
+  await go(o.page, '/settings');
   await o.page.locator('input[type=file]').setInputFiles(backupPath);
   await o.page.getByRole('button', { name: '복원', exact: true }).click();
   await expect(o.page.getByText('백업을 복원했어요.')).toBeVisible();
-  await o.page.getByRole('link', { name: '할 일', exact: true }).click();
+  await go(o.page, '/tasks');
   await expect(o.page.getByText(stamp)).toHaveCount(0); // 백업 시점으로 돌아갔다
 
   const m = await newPage(browser);
   await enter(m.page, MOM);
-  await m.page.getByRole('link', { name: '설정', exact: true }).click();
+  await go(m.page, '/settings');
   await expect(m.page.getByRole('button', { name: 'JSON 백업 내려받기' })).toBeDisabled();
   await expect(m.page.getByRole('button', { name: 'JSON 복원…' })).toBeDisabled();
   await o.ctx.close();

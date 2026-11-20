@@ -1,0 +1,32 @@
+/* v2 상세 화면(공지·준비물·설정 추가 항목) */
+.notice-list { display: grid; gap: 8px; padding: 0; list-style: none; }
+.notice-row { display: grid; gap: 4px; padding: 12px 14px; border-radius: 14px; background: var(--color-surface); border: 1px solid var(--color-line); color: inherit; text-decoration: none; }
+.notice-row:hover { border-color: var(--color-violet); }
+.notice-row__top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.notice-status--needs_review, .notice-status--pending_analysis { background: #fff0e8; color: #9a3d31; }
+.notice-status--confirmed { background: #eaf6ef; color: #2e6f55; }
+.notice-status--dismissed { background: #f1eff8; color: #746f86; }
+.banner.warn { background: #fff0e8; color: #9a3d31; border-color: #e9c4b8; }
+.digest-editor fieldset, .commute-child { border: 1px solid var(--color-line); border-radius: 14px; padding: 10px 12px; margin: 0; }
+.digest-editor legend, .commute-child legend { font-weight: 800; padding: 0 6px; }
+.digest-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+.digest-line input:not([type]), .digest-line input[type='text'] { flex: 1 1 180px; min-width: 0; }
+.digest-line input, .digest-line select, .row-form input, .row-form select { min-height: 44px; }
+.row-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.row-form input:not([type]) { flex: 1 1 160px; min-width: 0; }
+.row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: end; }
+@media (max-width: 600px) { .row3 { grid-template-columns: 1fr 1fr; } }
+.prep-day h3 { margin: 12px 0 6px; font-size: 17px; }
+.prep-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: space-between; }
+.prep-row.is-done label { text-decoration: line-through; color: var(--color-text-muted); }
+.prep-row small { flex: 1 1 200px; }
+.pickup-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.pickup-row select { min-height: 44px; }
+.chip.warn { background: #fff0e8; color: #9a3d31; }
+.digest-view { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; }
+.digest-view dt { font-weight: 800; color: var(--color-text-muted); }
+.digest-view dd { margin: 0; }
+.sync-box { display: grid; gap: 8px; padding: 12px; border-radius: 14px; background: var(--color-bg-canvas); }
+.weekday-grid { display: grid; gap: 6px; margin-top: 8px; }
+.list.small { font-size: 14px; }
+.btn.danger { background: #a53f49; color: #fff; }

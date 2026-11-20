@@ -274,6 +274,17 @@ class WeatherService:
                     payload = parse_ncst(items) if kind == "ncst" else parse_fcst(items)
                     if kind == "fcst" and not payload["hours"]:
                         raise WeatherError("예보 자료가 비어 있어요.")
+                    if kind == "fcst" and row is not None:
+                        # 새 발표는 발표 다음 시각부터만 있다. 오늘 앞 시각(예: 08:10 발표 뒤 08시 등원)은 이전 예보로 채운다.
+                        old = json.loads(row["payload"])
+                        keep_from = now.astimezone(KST).strftime("%Y-%m-%dT00:00")
+                        merged = {k: v for k, v in old.get("hours", {}).items() if k >= keep_from}
+                        merged.update(payload["hours"])
+                        payload["hours"] = merged
+                        days = {d: dict(v) for d, v in old.get("days", {}).items()}
+                        for d, v in payload["days"].items():
+                            days.setdefault(d, {}).update({k: x for k, x in v.items() if x is not None})
+                        payload["days"] = days
                     conn.execute(
                         "INSERT INTO weather_cache(kind, grid, base, fetched_at, payload) VALUES(?,?,?,?,?) "
                         "ON CONFLICT(kind, grid) DO UPDATE SET base=excluded.base, fetched_at=excluded.fetched_at, payload=excluded.payload",
@@ -324,7 +335,7 @@ class WeatherService:
                     "max": dd.get("tmx") if dd.get("tmx") is not None else (max(vals) if vals else None),
                     "popMax": max(pops) if pops else None, "condition": condition_ko(noon.get("sky"), noon.get("pty")) if noon else None}
 
-        cur_h = hours.get(cur_key, {})
+        cur_h = hours.get(cur_key) or next((hours[k] for k in sorted(hours) if k >= cur_key), None) or (hours[max(hours)] if hours else {})
         current = {
             "temp": nc.get("tmp") if nc.get("tmp") is not None else cur_h.get("tmp"),
             "pty": nc.get("pty") or cur_h.get("pty") or "none",

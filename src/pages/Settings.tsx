@@ -1,3 +1,4 @@
+import { V2SettingsSections } from './SettingsV2';
 import { useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { todayIn } from '../domain/dates';
@@ -191,6 +192,7 @@ export function SettingsPage() {
       <h1>설정</h1>
       <OfflineReason show={!online}>오프라인이에요. 설정은 연결된 뒤에 바꿀 수 있어요.</OfflineReason>
 
+      <V2SettingsSections />
       <Section id="set-account" title="👤 내 계정">
         <dl className="kv">
           <dt>가족</dt>

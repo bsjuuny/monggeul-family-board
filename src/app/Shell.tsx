@@ -87,10 +87,10 @@ export function useLogout() {
 }
 
 const NAV = [
-  { to: '/', label: '오늘', ariaLabel: '홈', ico: '⌂', end: true },
+  { to: '/', label: '보드', ariaLabel: '오늘 보드', ico: '⌂', end: true },
   { to: '/calendar', label: '주간', ariaLabel: '캘린더', ico: '▦', end: false },
-  { to: '/tasks', label: '할 일', ariaLabel: '할 일', ico: '✓', end: false },
-  { to: '/kids', label: '아이', ariaLabel: '아이', ico: '☺', end: false },
+  { to: '/notices', label: '공지', ariaLabel: '공지', ico: '✉', end: false },
+  { to: '/prep', label: '준비', ariaLabel: '준비물·픽업', ico: '✓', end: false },
 ];
 
 function AdultShell() {
@@ -114,6 +114,9 @@ function AdultShell() {
           {s.displayName}
           {s.isOwner ? ' · owner' : ' · 성인'}
         </span>
+        <Link className="btn ghost small topbar-link" to="/overview" aria-label="가족 한눈에">
+          <span aria-hidden="true">☺</span><span className="topbar-label">한눈에</span>
+        </Link>
         <Link className="btn ghost small topbar-link" to="/display" aria-label="TV 화면 미리보기">
           <span aria-hidden="true">📺</span><span className="topbar-label">TV 화면</span>
         </Link>
@@ -260,7 +263,8 @@ export function AppGate() {
   }
   return (
     <SessionProvider ctx={ctx}>
-      <AdultShell />
+      {/* 메인 보드는 전체 화면(셸 없이). 상세 메뉴는 보드의 메뉴 버튼으로 연다 */}
+      {loc.pathname === '/' ? <Outlet /> : <AdultShell />}
     </SessionProvider>
   );
 }

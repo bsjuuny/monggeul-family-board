@@ -100,9 +100,17 @@ export function buildDigest(text: string, receivedOn: string): DigestResult {
     return 'unspecified';
   };
 
+  const splitPair = (s: string) => {
+    // "물통과 여벌옷" → 물통, 여벌옷 (앞이 두 글자 이상이고 뒤가 숫자로 시작하지 않을 때만: "사과 2개"는 그대로)
+    const m = s.match(/^([가-힣A-Za-z0-9 ]{2,}?)(?:과|와|랑|하고)\s+([^\d\s].+)$/);
+    return m && (m[1] as string).trim().length >= 2 ? [(m[1] as string).trim(), (m[2] as string).trim()] : [s];
+  };
+  const seenSupply = new Set<string>();
   const supplies = a.supplies
     .filter((s) => !s.startsWith('준비물 문장 확인'))
-    .map((s) => ({ text: s, date: dateFor(s), for: supplyFor(s) }));
+    .flatMap((s) => splitPair(s).map((part) => ({ part, src: s })))
+    .filter(({ part }) => (seenSupply.has(part) ? false : (seenSupply.add(part), true)))
+    .map(({ part, src }) => ({ text: part, date: dateFor(src), for: supplyFor(src) }));
   const clothing: DatedText[] = a.clothing.map((c) => ({ text: c, date: dateFor(c) }));
 
   const documents: DatedText[] = [];
