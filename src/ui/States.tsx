@@ -151,4 +151,5 @@ export function avatarOf(key: string, mood: CharacterMood = 'happy'): ReactNode 
 export function avatarNameOf(key: string): string {
   return resolveCharacter(key)?.name ?? AVATAR_LABELS[key] ?? '웃는 얼굴';
 }
+export const HABIT_ICON_LABELS: Record<string, string> = { tooth: '양치', book: '책 읽기', toy: '정리', water: '물 마시기', star: '별', bed: '잠자기', shirt: '옷 입기' };
 export const habitIconOf = (k: string) => HABIT_ICONS[k] ?? '⭐';

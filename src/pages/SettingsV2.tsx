@@ -50,7 +50,7 @@ function WeatherSection({ s }: { s: Settings }) {
   return (
     <Section id="set-weather" title="🌤 날씨 지역">
       <p className="muted">기상청 단기예보로 등원·하원 시점 날씨와 옷차림을 알려 드려요. 동네 위치를 정해 주세요{s.location?.grid ? ` (지금 격자 ${s.location.grid.join(', ')})` : ''}.</p>
-      <div className="btn-row">{PRESETS.map((p) => <button key={p.name} type="button" className="btn ghost small" onClick={() => setLoc({ name: p.name, lat: String(p.lat), lon: String(p.lon) })}>{p.name}</button>)}</div>
+      <div className="btn-row">{PRESETS.map((p) => <button key={p.name} type="button" className="btn ghost small" aria-pressed={Number(loc.lat) === p.lat && Number(loc.lon) === p.lon} onClick={() => setLoc({ name: p.name, lat: String(p.lat), lon: String(p.lon) })}>{p.name}</button>)}</div>
       <div className="row3">
         <div className="field"><label htmlFor="wx-name">이름</label><input id="wx-name" value={loc.name} maxLength={30} onChange={(e) => setLoc({ ...loc, name: e.target.value })} /></div>
         <div className="field"><label htmlFor="wx-lat">위도</label><input id="wx-lat" inputMode="decimal" value={loc.lat} onChange={(e) => setLoc({ ...loc, lat: e.target.value })} /></div>

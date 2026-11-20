@@ -69,12 +69,14 @@ export function PrepPage() {
           </>
         )}
         <form className="row-form" onSubmit={(e: FormEvent) => { e.preventDefault(); if (form.text.trim()) add.mutate(); }} aria-label="준비물 추가">
-          <input type="date" aria-label="날짜" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-          <select aria-label="종류" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as PrepItem['kind'] })}>
-            {Object.entries(KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
-          <input aria-label="내용" placeholder="예: 여벌옷" maxLength={120} value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} />
-          <button type="submit" className="btn" disabled={!form.text.trim() || add.isPending}>추가</button>
+          <h3 className="row-form__title">준비물 추가</h3>
+          <div className="field"><label htmlFor="prep-date">날짜</label><input id="prep-date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
+          <div className="field"><label htmlFor="prep-kind">종류</label>
+            <select id="prep-kind" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as PrepItem['kind'] })}>
+              {Object.entries(KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select></div>
+          <div className="field row-form__wide"><label htmlFor="prep-text">내용</label><input id="prep-text" placeholder="예: 여벌옷" maxLength={120} value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} /></div>
+          <button type="submit" className="btn row-form__submit" disabled={!form.text.trim() || add.isPending}>추가</button>
         </form>
       </section>
 
@@ -113,14 +115,17 @@ export function PrepPage() {
           </ul>
         )}
         <form className="row-form" onSubmit={(e: FormEvent) => { e.preventDefault(); addExc.mutate(); }} aria-label="휴원·시간 변경 추가">
-          <select aria-label="변경 종류" value={exc.kind} onChange={(e) => setExc({ ...exc, kind: e.target.value as typeof exc.kind })}>
-            <option value="closed">휴원</option><option value="dropoff_time">등원 시간 변경</option><option value="pickup_time">하원 시간 변경</option>
-          </select>
-          <input type="date" aria-label="날짜" value={exc.date} onChange={(e) => setExc({ ...exc, date: e.target.value })} />
-          {exc.kind === 'closed' ? <input type="date" aria-label="끝 날짜(선택)" value={exc.endDate} onChange={(e) => setExc({ ...exc, endDate: e.target.value })} />
-            : <input type="time" aria-label="시각" value={exc.time} onChange={(e) => setExc({ ...exc, time: e.target.value })} required />}
-          <input aria-label="메모" placeholder="예: 개원기념일" maxLength={120} value={exc.note} onChange={(e) => setExc({ ...exc, note: e.target.value })} />
-          <button type="submit" className="btn" disabled={addExc.isPending || (exc.kind !== 'closed' && !exc.time)}>추가</button>
+          <h3 className="row-form__title">변경 추가</h3>
+          <div className="field"><label htmlFor="exc-kind">종류</label>
+            <select id="exc-kind" value={exc.kind} onChange={(e) => setExc({ ...exc, kind: e.target.value as typeof exc.kind })}>
+              <option value="closed">휴원</option><option value="dropoff_time">등원 시간 변경</option><option value="pickup_time">하원 시간 변경</option>
+            </select></div>
+          <div className="field"><label htmlFor="exc-date">{exc.kind === 'closed' ? '시작 날짜' : '날짜'}</label><input id="exc-date" type="date" value={exc.date} onChange={(e) => setExc({ ...exc, date: e.target.value })} /></div>
+          {exc.kind === 'closed'
+            ? <div className="field"><label htmlFor="exc-end">끝 날짜(하루면 비워 두기)</label><input id="exc-end" type="date" value={exc.endDate} onChange={(e) => setExc({ ...exc, endDate: e.target.value })} /></div>
+            : <div className="field"><label htmlFor="exc-time">{exc.kind === 'dropoff_time' ? '등원 시각' : '하원 시각'}</label><input id="exc-time" type="time" value={exc.time} onChange={(e) => setExc({ ...exc, time: e.target.value })} required /></div>}
+          <div className="field row-form__wide"><label htmlFor="exc-note">메모</label><input id="exc-note" placeholder="예: 개원기념일" maxLength={120} value={exc.note} onChange={(e) => setExc({ ...exc, note: e.target.value })} /></div>
+          <button type="submit" className="btn row-form__submit" disabled={addExc.isPending || (exc.kind !== 'closed' && !exc.time)}>추가</button>
         </form>
       </section>
     </div>

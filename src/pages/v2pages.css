@@ -12,16 +12,20 @@
 .digest-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
 .digest-line input:not([type]), .digest-line input[type='text'] { flex: 1 1 180px; min-width: 0; }
 .digest-line input, .digest-line select, .row-form input, .row-form select { min-height: 44px; }
-.row-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
-.row-form input:not([type]) { flex: 1 1 160px; min-width: 0; }
+.row-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 12px; align-items: end; margin-top: 16px; padding: 14px; border: 1px dashed var(--color-line); border-radius: 16px; }
+.row-form__title { grid-column: 1 / -1; margin: 0 0 8px; font-size: 16px; }
+.row-form__wide { grid-column: span 2; }
+.row-form__submit { margin-bottom: var(--space-3); }
+@media (max-width: 560px) { .row-form__wide { grid-column: 1 / -1; } }
 .row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: end; }
 @media (max-width: 600px) { .row3 { grid-template-columns: 1fr 1fr; } }
 .prep-day h3 { margin: 12px 0 6px; font-size: 17px; }
 .prep-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: space-between; }
 .prep-row.is-done label { text-decoration: line-through; color: var(--color-text-muted); }
 .prep-row small { flex: 1 1 200px; }
-.pickup-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.pickup-row select { min-height: 44px; }
+.pickup-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.pickup-row > span { flex: 1 1 160px; }
+.pickup-row select { min-height: 44px; width: auto; flex: 0 1 200px; }
 .chip.warn { background: #fff0e8; color: #9a3d31; }
 .digest-view { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; }
 .digest-view dt { font-weight: 800; color: var(--color-text-muted); }
@@ -38,3 +42,4 @@
 .notice-row:hover, .notice-row:focus-visible { border-color: var(--color-violet); background: var(--color-bg-canvas); }
 .notice-status--auto { background: var(--color-aqua); color: #23584f; }
 .big-code { font-family: 'Jua', sans-serif; font-size: 44px; letter-spacing: .2em; }
+.btn-row + .row3 { margin-top: 12px; }

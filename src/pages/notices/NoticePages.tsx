@@ -294,7 +294,7 @@ export function NoticeDetailPage() {
   const n = q.data;
   return (
     <div className="stack" data-testid="notice-detail">
-      <Link className="back-button" to="/notices">← 공지 목록</Link>
+      <Link className="back-link" to="/notices">← 공지 목록</Link>
       <h1>{n.title}</h1>
       <p className="notice-row__top"><StatusChip status={n.status} /><small>{SOURCE_LABEL[n.source]} · {n.receivedOn} 받음{n.editedByUser ? ' · 보호자가 고침' : ''}</small></p>
       {n.reviewReasons.length > 0 && n.status === 'needs_review' && <p className="banner warn" role="note">확인할 것: {n.reviewReasons.join(', ')}. 내용을 보고 '확인'을 눌러 주세요.</p>}
@@ -389,7 +389,7 @@ export function NoticeImportPage() {
   const result = done ?? preview;
   return (
     <div className="stack" data-testid="notice-import">
-      <Link className="back-button" to="/notices">← 공지 목록</Link>
+      <Link className="back-link" to="/notices">← 공지 목록</Link>
       <h1>공지톡에서 가져오기</h1>
       <p className="muted">공지톡 정리함의 <strong>저장함 → 내보내기</strong>로 받은 JSON 파일을 고르세요. 공지톡에 저장된 내용은 바뀌지 않아요. 받은 날은 공지톡에서 분석한 날로 계산해요.</p>
       <div className="field"><label htmlFor="imp-file">내보내기 파일</label><input id="imp-file" type="file" accept="application/json,.json" onChange={(e) => void onFile(e)} /></div>
