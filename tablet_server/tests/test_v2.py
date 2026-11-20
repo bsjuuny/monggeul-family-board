@@ -536,6 +536,79 @@ class AtomicImportAndPrivacyTests(V2Server):
         self.assertGreater(exp, int(time.time()) + bs.DEVICE_IDLE_TTL - 60)
 
 
+class ReviewFixTests(V2Server):
+    """2026-11-20 Codex·Claude 리뷰 지적 회귀 테스트"""
+
+    def test_unresolved_time_needs_review(self):
+        dg = digest("하원 시간 변경", needsConfirmation=["날짜·시각을 확인해 주세요: 하원 시간이 오후 3시로 바뀝니다."])
+        _, res, _ = self.owner.request("POST", "/api/notices", notice_body("하원 3시", "2026-11-20", dg))
+        self.assertEqual(res["notice"]["status"], "needs_review")
+        self.assertIn("날짜·시각 확인", res["notice"]["reviewReasons"])
+
+    def test_event_date_edit_keeps_same_event_row_and_link(self):
+        _, res, _ = self.owner.request("POST", "/api/notices", notice_body("행사", "2026-11-20", digest("발표회", event="2026-11-25")))
+        n = res["notice"]
+        _, evs, _ = self.owner.request("GET", f"/api/notice-events?noticeId={n['id']}")
+        ev = evs["events"][0]
+        self.owner.request("PUT", f"/api/notice-events/{ev['id']}/link", {"calendarEventId": "cal_1", "snapshot": {"title": "발표회"}})
+        self.owner.request("PUT", f"/api/notices/{n['id']}", {"baseVersion": n["version"], "digest": digest("발표회", event="2026-11-26")})
+        _, evs, _ = self.owner.request("GET", f"/api/notice-events?noticeId={n['id']}")
+        live = [e for e in evs["events"] if not e["deleted"]]
+        self.assertEqual(len(live), 1)
+        self.assertEqual((live[0]["id"], live[0]["date"], live[0]["calendarEventId"]), (ev["id"], "2026-11-26", "cal_1"))
+
+    def test_non_owner_cannot_force_store_original(self):
+        mom = self.login("mom", ADULT_PW)
+        _, res, _ = mom.request("POST", "/api/notices", {**notice_body("원문", "2026-11-20", digest()), "storeOriginal": True})
+        self.assertFalse(res["notice"]["hasOriginal"])
+        _, res, _ = self.owner.request("POST", "/api/notices", {**notice_body("원문2", "2026-11-20", digest("b")), "storeOriginal": True})
+        self.assertTrue(res["notice"]["hasOriginal"])
+
+    def test_confirm_after_dismiss_restores_derived(self):
+        dg = digest(event="2026-11-21", supplies=[{"text": "물통", "for": "dropoff"}])
+        _, res, _ = self.owner.request("POST", "/api/notices", notice_body("숨김", "2026-11-20", dg))
+        n = res["notice"]
+        _, n2, _ = self.owner.request("POST", f"/api/notices/{n['id']}/confirm", {"baseVersion": n["version"], "dismiss": True})
+        self.owner.request("POST", f"/api/notices/{n['id']}/confirm", {"baseVersion": n2["version"]})
+        _, prep, _ = self.owner.request("GET", "/api/preparations?from=2026-11-21&to=2026-11-21")
+        self.assertEqual([p["text"] for p in prep["items"]], ["물통"])
+
+    def test_restore_backs_up_db_and_keeps_tables_missing_from_file(self):
+        self.put_doc(FAMILY_DOC)
+        self.owner.request("POST", "/api/notices", notice_body("남아야 할 공지", "2026-11-20", digest("남는 공지")))
+        _, bk, _ = self.owner.request("GET", "/api/backup")
+        partial = {**bk, "v2": {"pickups": []}}  # notices 표가 없는 백업
+        st, _, _ = self.owner.request("POST", "/api/restore", partial)
+        self.assertEqual(st, 200)
+        _, lst, _ = self.owner.request("GET", "/api/notices")
+        self.assertEqual([n["title"] for n in lst["notices"]], ["남는 공지"])
+        backups = list((self.db.parent / "backups").glob("pre-restore-*.sqlite3"))
+        self.assertEqual(len(backups), 1)
+
+    def test_tv_privacy_scrubs_names_and_prep_notice_titles(self):
+        self.put_doc(FAMILY_DOC)
+        today = bs.today_kst()
+        dg = digest("서윤 투약 안내", event=today, supplies=[{"text": "서윤 여벌옷", "for": "dropoff"}])
+        self.owner.request("POST", "/api/notices", notice_body("투약", today, dg))
+        self.setting("tvPrivacy", {"hideChildNames": True})
+        st, code, _ = self.owner.request("POST", "/api/devices/pairing-codes", {})
+        tv = Jar(self.port)
+        tv.request("POST", "/api/devices/pair", {"code": code["code"]})
+        _, b, hdrs = tv.request("GET", "/api/board")
+        self.assertNotIn("서윤", json.dumps(b, ensure_ascii=False))
+        self.assertTrue(all(p["noticeTitle"] is None for p in b["prep"]["today"]))
+        self.assertIn("mgfb_device=", hdrs.get("Set-Cookie", ""))  # 쓰는 동안 쿠키도 연장
+
+    def test_nan_confidence_is_rejected_cleanly(self):
+        raw = json.dumps(notice_body("nan", "2026-11-20", digest())).replace('"digest": {', '"digest": {"confidence": NaN, ', 1).encode()
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=15)
+        conn.request("POST", "/api/notices", body=raw, headers={"Content-Type": "application/json", "Cookie": "; ".join(f"{k}={v}" for k, v in self.owner.cookies.items())})
+        res = conn.getresponse()
+        res.read()
+        conn.close()
+        self.assertIn(res.status, (200, 201))
+
+
 # ───────────────────────── 등하원·픽업·보드 ─────────────────────────
 class CommuteBoardTests(V2Server):
     def setUp(self):
@@ -655,6 +728,24 @@ class WeatherServiceTests(V2Server):
             calls = len(self.fetch_calls)
             self.owner.request("GET", "/api/weather")
             self.assertEqual(len(self.fetch_calls), calls)  # 실패 뒤 5분은 다시 부르지 않는다
+
+
+class WeatherReviewTests(unittest.TestCase):
+    def test_tomorrow_pickup_and_forecast_based_timestamp(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            db = Path(tmp) / "w.sqlite3"
+            app.init_db(db)
+            clock = {"now": datetime(2026, 11, 20, 20, 30, tzinfo=KST)}
+            svc = weather.WeatherService(Path(tmp), lambda key: fake_kma, clock=lambda: clock["now"])
+            with mock.patch.dict("os.environ", {"MGFB_KMA_KEY": "k"}):
+                conn = app.connect(db)
+                snap = svc.snapshot(conn, {"name": "x", "lat": 37.5665, "lon": 126.978}, "2026-11-20", None, None, "08:30", "15:00")
+                conn.execute("UPDATE weather_cache SET fetched_at = fetched_at - 8 * 3600 WHERE kind = 'fcst'")
+                snap2 = svc.snapshot(conn, {"name": "x", "lat": 37.5665, "lon": 126.978}, "2026-11-20", None, None, "08:30", "15:00")
+                conn.close()
+            self.assertEqual(len(snap["tomorrowAdvice"]), 2)  # 오늘은 휴원(시각 없음)이어도 내일 하원 예보를 쓴다
+            self.assertTrue(snap2["stale"])
+            self.assertGreaterEqual(snap2["ageMinutes"], 8 * 60)  # 오래된 단기예보 기준
 
 
 class WeatherMergeTests(unittest.TestCase):

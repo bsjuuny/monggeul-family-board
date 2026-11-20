@@ -6,8 +6,8 @@ import type { NoticeEventRow, V2 } from '../src/server/v2';
 
 const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
 
-function row(p: Partial<NoticeEventRow> = {}): NoticeEventRow {
-  return { id: 'nev1', noticeId: 'n1', date: today, endDate: null, time: null, title: '숲 체험', kind: 'event', needsReview: false, calendarEventId: null, calendarSnapshot: null, ...p };
+function row(p: Partial<NoticeEventRow & { deleted: boolean }> = {}): NoticeEventRow & { deleted: boolean } {
+  return { deleted: false, id: 'nev1', noticeId: 'n1', date: today, endDate: null, time: null, title: '숲 체험', kind: 'event', needsReview: false, calendarEventId: null, calendarSnapshot: null, ...p };
 }
 
 function cal(p: Partial<CalendarEvent> = {}): CalendarEvent {
@@ -15,14 +15,15 @@ function cal(p: Partial<CalendarEvent> = {}): CalendarEvent {
     visibility: 'family', note: '공지에서 가져온 일정', version: 3, createdAt: '', updatedAt: '', ...p };
 }
 
-function setup(events: NoticeEventRow[], calendar: CalendarEvent[]) {
+function setup(events: Array<NoticeEventRow & { deleted: boolean }>, calendar: CalendarEvent[]) {
   const link = vi.fn().mockResolvedValue({});
-  const v2 = { noticeEvents: vi.fn().mockResolvedValue({ events }), linkNoticeEvent: link } as unknown as V2;
+  const v2 = { noticeEventsOf: vi.fn().mockResolvedValue({ events }), linkNoticeEvent: link } as unknown as V2;
   const repo = {
     getEvents: vi.fn().mockResolvedValue(calendar),
     createEvent: vi.fn().mockImplementation(async (input) => cal({ ...input, id: 'cal-new' })),
     updateEvent: vi.fn().mockResolvedValue(cal()),
-  } as unknown as FullRepository & { createEvent: ReturnType<typeof vi.fn>; updateEvent: ReturnType<typeof vi.fn> };
+    deleteEvent: vi.fn().mockResolvedValue(undefined),
+  } as unknown as FullRepository & { createEvent: ReturnType<typeof vi.fn>; updateEvent: ReturnType<typeof vi.fn>; deleteEvent: ReturnType<typeof vi.fn> };
   return { v2, repo, link };
 }
 
@@ -63,6 +64,33 @@ describe('공지 행사 ↔ 캘린더', () => {
   it('캘린더에서 지운 일정은 다시 만들지 않고 연결만 끊는다', async () => {
     const { v2, repo, link } = setup([row({ calendarEventId: 'gone', calendarSnapshot: { title: '숲 체험', date: today, endDate: null, time: null } })], []);
     await syncNoticeCalendar(v2, repo, 'n1', false);
+    expect(repo.createEvent).not.toHaveBeenCalled();
+    expect(link).toHaveBeenCalledWith('nev1', null);
+  });
+
+  it('행사 날짜를 고쳐도 새 일정을 만들지 않고 연결된 일정을 옮긴다', async () => {
+    const old = { title: '숲 체험', date: today, endDate: null, time: null };
+    const moved = new Date(Date.parse(today) + 86400e3).toISOString().slice(0, 10);
+    const { v2, repo } = setup([row({ date: moved, calendarEventId: 'cal1', calendarSnapshot: old })], [cal()]);
+    const r = await syncNoticeCalendar(v2, repo, 'n1', true);
+    expect(r).toMatchObject({ created: 0, updated: 1 });
+    expect(repo.updateEvent).toHaveBeenCalledWith('cal1', 3, expect.objectContaining({ startDate: moved }));
+  });
+
+  it('공지에서 빠진 행사의 일정은 지우고, 보호자가 고친 일정은 남긴다', async () => {
+    const old = { title: '숲 체험', date: today, endDate: null, time: null };
+    const a = setup([row({ deleted: true, calendarEventId: 'cal1', calendarSnapshot: old })], [cal()]);
+    expect((await syncNoticeCalendar(a.v2, a.repo, 'n1', false)).removed).toBe(1);
+    expect(a.repo.deleteEvent).toHaveBeenCalledWith('cal1', 3);
+    const b = setup([row({ deleted: true, calendarEventId: 'cal1', calendarSnapshot: old })], [cal({ title: '직접 고침' })]);
+    expect((await syncNoticeCalendar(b.v2, b.repo, 'n1', false)).keptUserEdits).toBe(1);
+    expect(b.repo.deleteEvent).not.toHaveBeenCalled();
+    expect(b.link).toHaveBeenCalledWith('nev1', null);
+  });
+
+  it('캘린더에서 지운 일정은 확인(createMissing)해도 다시 만들지 않는다', async () => {
+    const { v2, repo, link } = setup([row({ calendarEventId: 'gone', calendarSnapshot: { title: '숲 체험', date: today, endDate: null, time: null } })], []);
+    await syncNoticeCalendar(v2, repo, 'n1', true);
     expect(repo.createEvent).not.toHaveBeenCalled();
     expect(link).toHaveBeenCalledWith('nev1', null);
   });

@@ -383,9 +383,10 @@ class Handler(BaseHTTPRequestHandler):
                 raise ApiError(400, "BAD_REQUEST", "Content-Length가 올바르지 않아요.", close=True)
             if n < 0:
                 raise ApiError(400, "BAD_REQUEST", "Content-Length가 올바르지 않아요.", close=True)
-            if n > self.server.config.max_body:
+            limit = self.server.config.max_body * (5 if urlsplit(self.path).path == "/api/restore" else 1)  # 백업 파일은 10MB까지
+            if n > limit:
                 # 클라이언트가 응답을 읽을 수 있도록 적당한 크기까지는 버리고 응답한다(저장하지 않음).
-                left = n if n <= 8 * self.server.config.max_body else 0
+                left = n if n <= 8 * limit else 0
                 while left > 0:
                     chunk = self.rfile.read(min(65536, left))
                     if not chunk:
@@ -504,8 +505,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not allow_device:
                     raise
         if allow_device:
-            dev = bs.device_for_token(conn, self._token(DEVICE_COOKIE_NAME))
+            dev_token = self._token(DEVICE_COOKIE_NAME)
+            dev = bs.device_for_token(conn, dev_token)
             if dev is not None:
+                # 쓰는 동안 브라우저 쿠키 수명도 늘린다(서버 만료와 함께 연장)
+                self._extra_headers.append(self._device_cookie_header(dev_token, bs.DEVICE_COOKIE_MAX_AGE))
                 return {"kind": "device", "device": dev, "actor": f"device:{dev['id']}"}
         raise ApiError(401, "UNAUTHENTICATED", "로그인이 필요해요.")
 
@@ -649,7 +653,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _notices_create(self, conn, query) -> None:
         p = self._user(conn)
-        res = bs.create_notice(conn, self._read_json(), p["actor"])
+        res = bs.create_notice(conn, self._read_json(), p["actor"], allow_store_original=p["user"]["role"] == "owner")
         self._send_json(200 if res["duplicate"] else 201, res)
 
     def _notice_get(self, conn, query, nid) -> None:
@@ -690,7 +694,8 @@ class Handler(BaseHTTPRequestHandler):
         body = self._read_json()
         if not isinstance(body, dict):
             raise ApiError(400, "VALIDATION_ERROR", "items가 필요해요.")
-        res = bs.import_notices(conn, body.get("items"), p["actor"], preview=body.get("preview") is not False)
+        res = bs.import_notices(conn, body.get("items"), p["actor"], preview=body.get("preview") is not False,
+                                allow_store_original=p["user"]["role"] == "owner")
         if not res["preview"]:
             audit(conn, p["actor"], "notices_import", json.dumps(res["summary"]))
         self._send_json(200, res)
@@ -751,6 +756,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _notice_events_list(self, conn, query) -> None:
         self._user(conn)
+        nid = self._q(query, "noticeId")
+        if nid:
+            self._send_json(200, {"events": bs.notice_events_of(conn, nid)})
+            return
         start, end = self._range(query, 30)
         self._send_json(200, {"events": bs.list_notice_events(conn, start, end)})
 
@@ -896,8 +905,13 @@ class Handler(BaseHTTPRequestHandler):
         text = json.dumps(body["data"], ensure_ascii=False, separators=(",", ":"))
         stamp = now_iso()
         v2 = body.get("v2")
-        if v2 is not None and (not isinstance(v2, dict) or any(not isinstance(v2.get(t, []), list) for t in V2_BACKUP_TABLES)):
+        if v2 is not None and (not isinstance(v2, dict) or any(not isinstance(v2[t], list) for t in V2_BACKUP_TABLES if t in v2)):
             raise ApiError(400, "VALIDATION_ERROR", "백업 파일의 v2 형식이 올바르지 않아요.")
+        if isinstance(v2, dict):
+            # v2 표는 doc_backups 에 들어가지 않으므로 복원 직전 DB 파일 전체를 남긴다
+            migrations.backup_db(self.server.config.db_path,
+                                 self.server.config.db_path.parent / "backups" / f"pre-restore-{re.sub(r'[^0-9]', '', stamp)[:14]}.sqlite3")
+            migrations.prune_backups(self.server.config.db_path.parent / "backups", "pre-restore-", keep=10)
         conn.execute("BEGIN IMMEDIATE")
         try:
             cur = conn.execute("SELECT version, data FROM family_doc WHERE id = 1").fetchone()
@@ -916,6 +930,8 @@ class Handler(BaseHTTPRequestHandler):
             )
             if isinstance(v2, dict):  # v2 표도 백업 시점으로 되돌린다(같은 트랜잭션)
                 for t in V2_BACKUP_TABLES:
+                    if t not in v2:  # 백업 파일에 없는 표는 건드리지 않는다
+                        continue
                     cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{t}")')]
                     conn.execute(f'DELETE FROM "{t}"')
                     for row in v2.get(t, []):

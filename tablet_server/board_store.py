@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import secrets
 import sqlite3
@@ -388,7 +389,7 @@ def clean_digest(d: Any) -> Dict[str, Any]:
         "replyText": _s(d.get("replyText"), 120),
         "needsConfirmation": _list_of_str(d.get("needsConfirmation"), 6, 160),
         "cautions": _list_of_str(d.get("cautions"), 6, 160),
-        "confidence": max(0, min(100, int(d.get("confidence") or 0))) if isinstance(d.get("confidence"), (int, float)) else 0,
+        "confidence": max(0, min(100, int(d["confidence"]))) if isinstance(d.get("confidence"), (int, float)) and math.isfinite(d["confidence"]) else 0,
     }
     return out
 
@@ -414,6 +415,8 @@ def review_reasons(dg: Dict[str, Any]) -> List[str]:
     has_dated_content = bool(dg["supplies"] or dg["dates"] or dg["eventDate"])
     if has_dated_content and dg["dateConfidence"] in ("unknown", "inferred"):
         r.append("날짜 확인")
+    if any(x.startswith("날짜·시각을 확인") for x in dg["needsConfirmation"]) and "날짜 확인" not in r:
+        r.append("날짜·시각 확인")
     return r
 
 
@@ -480,16 +483,16 @@ def _apply_derived(conn: sqlite3.Connection, notice_id: str, dg: Dict[str, Any],
         elif not cur["user_edited"]:
             conn.execute("UPDATE commute_exceptions SET needs_review=?, end_date=?, note=?, deleted_at=NULL, updated_at=? WHERE id=?",
                          (1 if review else 0, e["endDate"], e["note"], stamp, cur["id"]))
-    for ev in d["events"]:
-        k = _key(notice_id, "ev", ev["date"])
+    for i, ev in enumerate(d["events"]):
+        k = _key(notice_id, "ev", i)
         keep_ev.add(k)
         cur = conn.execute("SELECT id FROM notice_events WHERE item_key = ?", (k,)).fetchone()
         if cur is None:
             conn.execute("INSERT INTO notice_events(id, item_key, notice_id, date, end_date, time, title, kind, needs_review, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                          (new_id("nev"), k, notice_id, ev["date"], ev["endDate"], ev["time"], ev["title"], ev["kind"], 1 if review else 0, stamp, stamp))
         else:
-            conn.execute("UPDATE notice_events SET end_date=?, time=?, title=?, needs_review=?, deleted_at=NULL, updated_at=? WHERE id=?",
-                         (ev["endDate"], ev["time"], ev["title"], 1 if review else 0, stamp, cur["id"]))
+            conn.execute("UPDATE notice_events SET date=?, end_date=?, time=?, title=?, needs_review=?, deleted_at=NULL, updated_at=? WHERE id=?",
+                         (ev["date"], ev["endDate"], ev["time"], ev["title"], 1 if review else 0, stamp, cur["id"]))
     # 더 이상 요약에 없는 파생 항목은 감춘다(사용자가 고친 것은 남긴다)
     for table, keep in (("prep_items", keep_prep), ("commute_exceptions", keep_exc)):
         for r in conn.execute(f"SELECT id, item_key, user_edited FROM {table} WHERE notice_id = ? AND deleted_at IS NULL", (notice_id,)).fetchall():
@@ -532,7 +535,8 @@ def _status_for(dg: Dict[str, Any], settings: Dict[str, Any]) -> str:
     return "auto" if settings["notices"].get("autoShowGeneral", True) else "needs_review"
 
 
-def create_notice(conn: sqlite3.Connection, body: Dict[str, Any], actor: str, *, allow_sources: Iterable[str] = ("manual", "gongjitalk")) -> Dict[str, Any]:
+def create_notice(conn: sqlite3.Connection, body: Dict[str, Any], actor: str, *, allow_sources: Iterable[str] = ("manual", "gongjitalk"),
+                  allow_store_original: bool = False) -> Dict[str, Any]:
     """새 공지를 저장한다. 같은 공지(출처 ID 또는 내용 해시)가 있으면 저장하지 않고 duplicate로 알린다."""
     if not isinstance(body, dict):
         raise StoreError(400, "VALIDATION_ERROR", "공지 형식이 올바르지 않아요.")
@@ -549,7 +553,7 @@ def create_notice(conn: sqlite3.Connection, body: Dict[str, Any], actor: str, *,
     dg = clean_digest(body.get("digest"))
     settings = get_settings(conn)
     original = body.get("originalText")
-    store_original = isinstance(original, str) and original.strip() and (settings["notices"]["storeOriginal"] or body.get("storeOriginal") is True)
+    store_original = isinstance(original, str) and original.strip() and (settings["notices"]["storeOriginal"] or (allow_store_original and body.get("storeOriginal") is True))
     original_text = original.strip()[:20000] if store_original else None
     with _tx(conn):
         dup = None
@@ -635,6 +639,8 @@ def confirm_notice(conn: sqlite3.Connection, nid: str, base_version: Any, actor:
                      (status, stamp, actor, stamp, actor, nid))
         if dismiss:
             _hide_derived(conn, nid)
+        elif r["status"] == "dismissed":
+            _apply_derived(conn, nid, json.loads(r["digest"]), review=False)
         else:
             for table in ("prep_items", "commute_exceptions", "notice_events"):
                 conn.execute(f"UPDATE {table} SET needs_review = 0, updated_at = ? WHERE notice_id = ? AND deleted_at IS NULL", (stamp, nid))
@@ -659,7 +665,7 @@ def notice_history(conn: sqlite3.Connection, nid: str) -> List[Dict[str, Any]]:
             for r in conn.execute("SELECT at, actor, action FROM notice_history WHERE notice_id = ? ORDER BY id DESC LIMIT 50", (nid,))]
 
 
-def import_notices(conn: sqlite3.Connection, items: Any, actor: str, preview: bool) -> Dict[str, Any]:
+def import_notices(conn: sqlite3.Connection, items: Any, actor: str, preview: bool, allow_store_original: bool = False) -> Dict[str, Any]:
     """공지톡 JSON 가져오기. 미리보기면 저장하지 않고 항목별 결과만 돌려준다."""
     if not isinstance(items, list) or len(items) > 200:
         raise StoreError(400, "VALIDATION_ERROR", "가져올 공지 목록(최대 200건)이 필요해요.")
@@ -670,7 +676,7 @@ def import_notices(conn: sqlite3.Connection, items: Any, actor: str, preview: bo
             results = []
             for r in checked["results"]:
                 if r["status"] == "new":
-                    res = create_notice(conn, {**items[r["index"]], "source": "gongjitalk"}, actor, allow_sources=("gongjitalk",))
+                    res = create_notice(conn, {**items[r["index"]], "source": "gongjitalk"}, actor, allow_sources=("gongjitalk",), allow_store_original=allow_store_original)
                     results.append({"index": r["index"], "status": "duplicate" if res["duplicate"] else "created", "id": res["notice"]["id"], "title": res["notice"]["title"]})
                 else:
                     results.append(r)
@@ -714,9 +720,12 @@ def _prep_json(r: sqlite3.Row) -> Dict[str, Any]:
 def list_prep(conn: sqlite3.Connection, start: str, end: str, include_undated: bool = True) -> List[Dict[str, Any]]:
     q = ("SELECT p.*, n.title AS notice_title FROM prep_items p LEFT JOIN notices n ON n.id = p.notice_id "
          "WHERE p.deleted_at IS NULL AND (n.id IS NULL OR (n.deleted_at IS NULL AND n.status != 'dismissed')) AND "
-         + ("((p.date BETWEEN ? AND ?) OR p.date IS NULL)" if include_undated else "(p.date BETWEEN ? AND ?)")
+         + ("((p.date BETWEEN ? AND ?) OR (p.date IS NULL AND p.done_at IS NULL AND p.created_at >= ?))" if include_undated else "(p.date BETWEEN ? AND ?)")
          + " ORDER BY p.date IS NULL, p.date, p.kind, p.created_at")
-    return [_prep_json(r) for r in conn.execute(q, (start, end))]
+    args: Tuple[Any, ...] = (start, end)
+    if include_undated:
+        args += ((datetime.now(timezone.utc) - timedelta(days=45)).strftime("%Y-%m-%dT%H:%M:%S"),)
+    return [_prep_json(r) for r in conn.execute(q, args)]
 
 
 def add_prep(conn: sqlite3.Connection, body: Dict[str, Any], actor: str) -> Dict[str, Any]:
@@ -905,10 +914,25 @@ def list_notice_events(conn: sqlite3.Connection, start: str, end: str) -> List[D
         "SELECT e.*, n.status AS notice_status FROM notice_events e JOIN notices n ON n.id = e.notice_id "
         "WHERE e.deleted_at IS NULL AND n.deleted_at IS NULL AND n.status != 'dismissed' "
         "AND e.date <= ? AND COALESCE(e.end_date, e.date) >= ? ORDER BY e.date, e.time", (end, start)).fetchall()
-    return [{"id": r["id"], "noticeId": r["notice_id"], "date": r["date"], "endDate": r["end_date"], "time": r["time"],
+    return [_nev_json(r) for r in rows]
+
+
+def notice_events_of(conn: sqlite3.Connection, notice_id: str) -> List[Dict[str, Any]]:
+    """공지 하나의 행사 전체(날짜 제한 없음). 지워진 행은 deleted=true 로 함께 준다(캘린더 정리용)."""
+    rows = conn.execute("SELECT e.*, n.status AS notice_status, n.deleted_at AS notice_deleted FROM notice_events e JOIN notices n ON n.id = e.notice_id "
+                        "WHERE e.notice_id = ? ORDER BY e.date", (notice_id,)).fetchall()
+    out = []
+    for r in rows:
+        j = _nev_json(r)
+        j["deleted"] = bool(r["deleted_at"] or r["notice_deleted"] or r["notice_status"] == "dismissed")
+        out.append(j)
+    return out
+
+
+def _nev_json(r: sqlite3.Row) -> Dict[str, Any]:
+    return {"id": r["id"], "noticeId": r["notice_id"], "date": r["date"], "endDate": r["end_date"], "time": r["time"],
              "title": r["title"], "kind": r["kind"], "needsReview": bool(r["needs_review"]),
              "calendarEventId": r["calendar_event_id"], "calendarSnapshot": json.loads(r["calendar_snapshot"]) if r["calendar_snapshot"] else None}
-            for r in rows]
 
 
 def link_notice_event(conn: sqlite3.Connection, ev_id: str, body: Dict[str, Any]) -> None:
@@ -919,7 +943,7 @@ def link_notice_event(conn: sqlite3.Connection, ev_id: str, body: Dict[str, Any]
     if cal is not None and (not isinstance(cal, str) or len(cal) > 64):
         raise StoreError(400, "VALIDATION_ERROR", "calendarEventId를 확인해 주세요.")
     with _tx(conn):
-        cur = conn.execute("UPDATE notice_events SET calendar_event_id=?, calendar_snapshot=?, updated_at=? WHERE id=? AND deleted_at IS NULL",
+        cur = conn.execute("UPDATE notice_events SET calendar_event_id=?, calendar_snapshot=?, updated_at=? WHERE id=?",
                            (cal, json.dumps(snap, ensure_ascii=False) if isinstance(snap, dict) and cal else None, now_iso(), ev_id))
         if cur.rowcount == 0:
             raise StoreError(404, "NOT_FOUND", "없는 공지 일정이에요.")

@@ -253,6 +253,8 @@ export function v2(api: ServerApi) {
     pickups: (from: string, to: string) => api.request<{ pickups: Pickup[]; adults: string[] }>('GET', `/api/pickups${q({ from, to })}`),
     setPickup: (body: { date: string; childId: string; assignee?: string; done?: boolean }) => api.request('PUT', '/api/pickups', body),
     noticeEvents: (from: string, to: string) => api.request<{ events: NoticeEventRow[] }>('GET', `/api/notice-events${q({ from, to })}`),
+    /** 공지 하나의 행사 전체(날짜 제한 없음, 지운 행 포함) */
+    noticeEventsOf: (noticeId: string) => api.request<{ events: Array<NoticeEventRow & { deleted: boolean }> }>('GET', `/api/notice-events${q({ noticeId })}`),
     linkNoticeEvent: (id: string, calendarEventId: string | null, snapshot?: NoticeEventRow['calendarSnapshot']) =>
       api.request('PUT', `/api/notice-events/${id}/link`, { calendarEventId, snapshot }),
     // 공지 자동 수집

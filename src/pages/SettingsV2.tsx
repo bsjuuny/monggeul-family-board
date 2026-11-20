@@ -46,6 +46,7 @@ function useSave() {
 function WeatherSection({ s }: { s: Settings }) {
   const save = useSave();
   const [loc, setLoc] = useState({ name: s.location?.name ?? '', lat: String(s.location?.lat ?? ''), lon: String(s.location?.lon ?? '') });
+  useEffect(() => setLoc({ name: s.location?.name ?? '', lat: String(s.location?.lat ?? ''), lon: String(s.location?.lon ?? '') }), [s.location, s._versions.location]);
   return (
     <Section id="set-weather" title="🌤 날씨 지역">
       <p className="muted">기상청 단기예보로 등원·하원 시점 날씨와 옷차림을 알려 드려요. 동네 위치를 정해 주세요{s.location?.grid ? ` (지금 격자 ${s.location.grid.join(', ')})` : ''}.</p>
@@ -68,7 +69,7 @@ function CommuteSection({ s }: { s: Settings }) {
   const members = useMembers();
   const kids = members.data?.children.filter((c) => c.active) ?? [];
   const [draft, setDraft] = useState<Record<string, ChildCommute>>(s.commute.children);
-  useEffect(() => setDraft(s.commute.children), [s.commute.children]);
+  useEffect(() => setDraft(s.commute.children), [s.commute.children, s._versions.commute]);
   const set = (id: string, p: Partial<ChildCommute>) => setDraft({ ...draft, [id]: { ...(draft[id] ?? DEFAULT_CHILD), ...p } });
   return (
     <Section id="set-commute" title="🏫 등하원 시간">
@@ -126,6 +127,7 @@ function CommuteSection({ s }: { s: Settings }) {
 function ScreenSection({ s }: { s: Settings }) {
   const save = useSave();
   const [v, setV] = useState(s.screen);
+  useEffect(() => setV(s.screen), [s.screen, s._versions.screen]);
   return (
     <Section id="set-screen" title="🌅 화면 전환 시각">
       <p className="muted">보드는 시간대에 따라 아침(등원) → 오후(하원) → 저녁(내일 준비) 화면으로 바뀌어요. 보드에서 직접 바꾸면 다음 전환 때까지 유지돼요.</p>

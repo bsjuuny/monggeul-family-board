@@ -64,12 +64,16 @@ git checkout main && npm ci && npm run build   # v1 코드로 돌아가기
 | 종류 | 위치 | 언제 |
 |---|---|---|
 | 가족 문서 JSON 백업 | 설정 → 서버와 백업 (owner) | 사람이 내려받음 |
-| 복원 직전 자동 백업 | SQLite `doc_backups`(최근 20개) | JSON 복원 때 |
-| 마이그레이션 전 DB 파일 | `~/monggeul-family-board-data/backups/` | 스키마 업그레이드 때 |
+| 복원 직전 자동 백업 | 가족 문서: SQLite `doc_backups`(최근 20개) / DB 파일: `backups/pre-restore-*`(최근 10개) | JSON 복원 때 |
+| 마이그레이션 전 DB 파일 | `~/monggeul-family-board-data/backups/pre-migrate-*`(최근 10개) | 스키마 업그레이드 때 |
 | 수동 DB 파일 사본 | 위 1절 1) | 업그레이드·이전 전 |
 
-주의: 가족 문서 JSON 백업에는 v2 공지·준비물·픽업·설정 테이블이 **들어 있지 않다**(가족 문서 PUT과 분리했기 때문). v2 데이터까지 보존하려면 DB 파일을 복사한다:
-`sqlite3 ~/monggeul-family-board-data/family.sqlite3 ".backup '/sdcard/Download/family-$(date +%F).sqlite3'"` (Termux `pkg install sqlite`, 저장소 권한 `termux-setup-storage` 필요).
+JSON 백업(설정 → 서버와 백업, owner) 범위
+- 들어감: 가족 문서(일정·할 일·습관·구성원), v2 표 `settings`, `notices`(요약만), `prep_items`, `commute_exceptions`, `notice_events`, `pickups`
+- 안 들어감: 공지 원문(개인정보), 공지 수정 이력, TV 기기·연결 코드, 로그인 계정·세션, 날씨 캐시, 수집 기록
+- 복원하면 가족 문서와 **백업 파일에 들어 있는 v2 표**를 백업 시점으로 바꾼다(파일에 없는 표는 그대로 둔다). 복원 직전 DB 파일 전체를 `backups/pre-restore-<시각>.sqlite3`로 자동 저장한다(최근 10개).
+- 계정·TV 연결까지 통째로 옮기거나 되돌리려면 DB 파일을 복사한다:
+  `sqlite3 ~/monggeul-family-board-data/family.sqlite3 ".backup '/sdcard/Download/family-$(date +%F).sqlite3'"` (Termux `pkg install sqlite`, 저장소 권한 `termux-setup-storage` 필요)
 
 ## 5. 태블릿 서버 vs 미니PC 서버 비교
 

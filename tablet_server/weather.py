@@ -297,7 +297,8 @@ class WeatherService:
                     self._last_error[fk] = str(e)
 
     def snapshot(self, conn: sqlite3.Connection, location: Optional[Dict[str, Any]], today: str,
-                 dropoff_at: Optional[str], pickup_at: Optional[str], tomorrow_dropoff_at: Optional[str]) -> Dict[str, Any]:
+                 dropoff_at: Optional[str], pickup_at: Optional[str], tomorrow_dropoff_at: Optional[str],
+                 tomorrow_pickup_at: Optional[str] = None) -> Dict[str, Any]:
         if not location:
             return {"configured": False, "reason": "location"}
         if not self.key_configured():
@@ -350,16 +351,17 @@ class WeatherService:
         t_drop = at(tomorrow, tomorrow_dropoff_at)
         ages = {k: int((now.timestamp() - r["fetched_at"]) / 60) for k, r in (("ncst", n_row), ("fcst", f_row)) if r is not None}
         stale = f_row is None or any(age > STALE_AFTER_MIN[k] for k, age in ages.items())
-        fetched = max(r["fetched_at"] for r in (n_row, f_row) if r is not None)
+        # 기준 시각은 등하원 예보·추천의 근거인 단기예보 기준(없으면 실황)
+        fetched = (f_row or n_row)["fetched_at"]
         upcoming = sorted(k for k in hours if k >= cur_key)[:12]
         return {
             "configured": True, "available": True, "location": location.get("name"),
             "current": current, "today": day(today), "tomorrow": {**day(tomorrow), "dropoff": t_drop},
             "dropoff": drop, "pickup": pick,
-            "advice": advice(drop, pick), "tomorrowAdvice": advice(t_drop, at(tomorrow, pickup_at)),
+            "advice": advice(drop, pick), "tomorrowAdvice": advice(t_drop, at(tomorrow, tomorrow_pickup_at or pickup_at)),
             "hourly": [{"at": k, **hours[k], "condition": condition_ko(hours[k].get("sky"), hours[k].get("pty"))} for k in upcoming],
             "updatedAt": datetime.fromtimestamp(fetched, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "stale": stale, "ageMinutes": min(ages.values()) if ages else None,
+            "stale": stale, "ageMinutes": ages.get("fcst", ages.get("ncst")),
             "error": (self._last_error.get(f"fcst:{grid}") or self._last_error.get(f"ncst:{grid}")) if stale else None,
             "source": "기상청 단기예보",
         }

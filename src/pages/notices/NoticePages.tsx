@@ -2,7 +2,7 @@
 import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { usePageTitle, useServices } from '../../app/context';
+import { usePageTitle, useServices, useSession } from '../../app/context';
 import { isFamilyBoardError } from '../../domain/errors';
 import { buildDigest, fromGongjitalk } from '../../notices/digest';
 import type { NoticeDigest } from '../../notices/types';
@@ -244,7 +244,8 @@ export function NoticeDetailPage() {
   const calendar = async (createMissing: boolean) => {
     try {
       const r = await syncNoticeCalendar(v2, repo, id, createMissing);
-      if (r.created || r.updated) toast.info(`캘린더 일정 ${r.created ? `${r.created}개 추가` : ''}${r.created && r.updated ? ', ' : ''}${r.updated ? `${r.updated}개 갱신` : ''}했어요.`);
+      const parts = [r.created && `${r.created}개 추가`, r.updated && `${r.updated}개 갱신`, r.removed && `${r.removed}개 삭제`].filter(Boolean);
+      if (parts.length) toast.info(`캘린더 일정을 ${parts.join(', ')}했어요.`);
       if (r.keptUserEdits) toast.info('캘린더에서 직접 고친 일정은 그대로 두었어요.');
     } catch (e) {
       toast.error(errMsg(e, '캘린더에 반영하지 못했어요.'));
@@ -257,6 +258,7 @@ export function NoticeDetailPage() {
       if (kind === 'dismiss') return v2.confirmNotice(n.id, n.version, true);
       if (kind === 'save') return v2.updateNotice(n.id, n.version, editing as NoticeDigest);
       await v2.deleteNotice(n.id);
+      await syncNoticeCalendar(v2, repo, n.id, false).catch(() => undefined);
       return null;
     },
     onSuccess: async (_r, kind) => {
@@ -265,10 +267,17 @@ export function NoticeDetailPage() {
       if (kind === 'save') { setEditing(null); toast.info('고친 내용을 저장했어요.'); }
       if (kind === 'confirm') toast.info('확인했어요. 보드에 확정으로 표시해요.');
       if (kind === 'confirm' || kind === 'save') await calendar(true);
+      if (kind === 'dismiss') await calendar(false);
     },
     onError: async (e) => {
+      if (isFamilyBoardError(e) && e.code === 'VERSION_CONFLICT') {
+        // 다른 기기가 먼저 바꿨다: 내 편집안으로 덮어쓰지 않도록 편집을 닫고 최신 내용을 다시 보여 준다
+        setEditing(null);
+        await q.refetch();
+        toast.error('다른 기기에서 이 공지를 먼저 바꿨어요. 바뀐 내용을 확인한 뒤 다시 고쳐 주세요.');
+        return;
+      }
       toast.error(errMsg(e, '처리하지 못했어요.'));
-      if (isFamilyBoardError(e) && e.code === 'VERSION_CONFLICT') await q.refetch();
     },
   });
   if (q.isPending) return <LoadingBlock />;
@@ -318,6 +327,7 @@ export function NoticeDetailPage() {
 export function NoticeImportPage() {
   usePageTitle('공지톡에서 가져오기');
   const { v2 } = useServices();
+  const { isOwner } = useSession();
   const qc = useQueryClient();
   const toast = useToast();
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
@@ -374,7 +384,7 @@ export function NoticeImportPage() {
       <h1>공지톡에서 가져오기</h1>
       <p className="muted">공지톡 정리함의 <strong>저장함 → 내보내기</strong>로 받은 JSON 파일을 고르세요. 공지톡에 저장된 내용은 바뀌지 않아요. 받은 날은 공지톡에서 분석한 날로 계산해요.</p>
       <div className="field"><label htmlFor="imp-file">내보내기 파일</label><input id="imp-file" type="file" accept="application/json,.json" onChange={(e) => void onFile(e)} /></div>
-      <label className="check"><input type="checkbox" checked={keepOriginal} onChange={(e) => { setKeepOriginal(e.target.checked); if (raw) void prepare(raw, e.target.checked); }} /> 공지 원문도 태블릿에 저장(기본: 저장 안 함)</label>
+      {isOwner && <label className="check"><input type="checkbox" checked={keepOriginal} onChange={(e) => { setKeepOriginal(e.target.checked); if (raw) void prepare(raw, e.target.checked); }} /> 공지 원문도 태블릿에 저장(기본: 저장 안 함, owner만)</label>}
       {error && <p className="err" role="alert">{error}</p>}
       {result && (
         <section className="card" aria-label="가져오기 미리보기">

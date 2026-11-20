@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol
 
 import board_store as bs
-from analyzer_bridge import AnalyzerUnavailable, content_hash, normalize_text
+from analyzer_bridge import AnalyzerUnavailable, content_hash
 
 KST = timezone(timedelta(hours=9))
 SOURCE_KEY = "kidsnote"
@@ -149,7 +149,7 @@ def run_sync(conn: sqlite3.Connection, adapter: NoticeSourceAdapter, analyzer: A
         todo = []
         for it in items:
             existing = conn.execute("SELECT * FROM notices WHERE source = ? AND source_id = ?", (adapter.mode if adapter.mode == "mock" else "kidsnote", it.source_id)).fetchone()
-            text = normalize_text(f"{it.title}\n{it.text}")
+            text = f"{it.title}\n{it.text}".strip()  # 줄바꿈을 살려 분석한다(해시는 정규화해서)
             h = content_hash(text)
             if existing is not None and existing["content_hash"] == h and existing["deleted_at"] is None:
                 counts["skipped"] += 1
@@ -209,7 +209,7 @@ def _upsert(conn: sqlite3.Connection, source: str, it: SourceItem, text: str, h:
             bs._history(conn, nid, "sync", "create", dg)
         else:
             nid = existing["id"]
-            if existing["edited_by_user"] and digest is not None:
+            if existing["edited_by_user"]:
                 # 보호자가 고친 결과는 덮어쓰지 않는다. 원본이 바뀌었음을 기록하고 다시 확인을 요청한다.
                 bs._history(conn, nid, "sync", "source_changed", dg)
                 conn.execute("UPDATE notices SET status='needs_review', content_hash=?, source_updated_at=?, version=version+1, updated_at=?, updated_by='sync', deleted_at=NULL WHERE id=?",

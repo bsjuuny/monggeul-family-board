@@ -107,6 +107,7 @@ export function BoardHomePage() {
       await Promise.all(b.commute.today.filter((p) => p.attends).map((p) => v2.setPickup({ date: b.today, childId: p.childId, done: true })));
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['board'] }),
+    onError: () => toast.error('하원 완료를 저장하지 못했어요.'),
   });
   if (!q.data) {
     if (q.isError) return <BoardLoading label="태블릿 서버에 연결할 수 없어요. 같은 Wi-Fi인지 확인해 주세요." />;
@@ -158,6 +159,7 @@ function TvCorner({ viewer, onUnpaired }: { viewer: Board['viewer']; onUnpaired:
   const { v2 } = useServices();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [failed, setFailed] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => setOpen(false), []);
   useDialog(open, closeRef, close);
@@ -172,7 +174,8 @@ function TvCorner({ viewer, onUnpaired }: { viewer: Board['viewer']; onUnpaired:
             <FullscreenButton className="v2-menu__item" />
             {viewer.kind === 'user'
               ? <button type="button" className="v2-menu__item" onClick={() => navigate('/')}><Icon name="home" />앱으로 돌아가기</button>
-              : <button type="button" className="v2-menu__item" onClick={() => void v2.unpair().then(onUnpaired)}><Icon name="close" />이 TV 연결 해제</button>}
+              : <button type="button" className="v2-menu__item" onClick={() => void v2.unpair().then(onUnpaired).catch(() => setFailed(true))}><Icon name="close" />이 TV 연결 해제</button>}
+            {failed && <p role="alert" className="v2-count">연결을 해제하지 못했어요. 서버 연결을 확인해 주세요.</p>}
           </div>
         </div>
       )}

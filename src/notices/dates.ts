@@ -41,14 +41,14 @@ function dayOfWeekInWeek(monday: string, wdChar: string): string {
   return addDaysIso(monday, idx === 0 ? 6 : idx - 1);
 }
 
-/** 연도 없는 월·일: 기준일보다 90일 넘게 과거면 다음 해로 본다 */
-function inferYear(received: string, m: number, d: number): string | null {
+/** 연도 없는 월·일: 기준일보다 90일 넘게 과거면 다음 해로 본다. 지난해로 당길 때는 확실하지 않아 back=true */
+function inferYear(received: string, m: number, d: number): { iso: string; back: boolean } | null {
   const y = Number(received.slice(0, 4));
   const cand = isoOf(y, m, d);
   if (!cand) return null;
-  if (cand < addDaysIso(received, -90)) return isoOf(y + 1, m, d);
-  if (cand > addDaysIso(received, 275)) return isoOf(y - 1, m, d);
-  return cand;
+  if (cand < addDaysIso(received, -90)) { const n = isoOf(y + 1, m, d); return n ? { iso: n, back: false } : null; }
+  if (cand > addDaysIso(received, 275)) { const p = isoOf(y - 1, m, d); return p ? { iso: p, back: true } : null; }
+  return { iso: cand, back: false };
 }
 
 export function parseTime(s: string): string | null {
@@ -67,11 +67,11 @@ export function parseTime(s: string): string | null {
     hour = Number(m[2]);
     min = m[4] ? 30 : m[3] ? Number(m[3]) : 0;
   }
-  if (hour > 24 || min > 59) return null;
+  if (hour > 23 || min > 59) return null; // 24시 표기는 날짜가 넘어가므로 확정하지 않는다
+  if ((ampm === '오전' || ampm === '아침') && hour === 12) hour = 0; // 오전 12시 = 자정
   if ((ampm === '오후' || ampm === '저녁') && hour < 12) hour += 12;
   else if (ampm === '낮' && hour < 6) hour += 12;
   else if (!ampm && hour >= 1 && hour <= 6) hour += 12; // 어린이집 공지의 '3시 하원'은 오후
-  if (hour === 24) hour = 0;
   return `${pad(hour)}:${pad(min)}`;
 }
 
@@ -122,17 +122,17 @@ export function extractDates(text: string, receivedOn: string): DateMention[] {
   }
   // 2) 월 일 (요일)
   for (const m of text.matchAll(/(\d{1,2})\s*월\s*(\d{1,2})\s*일(?:\s*\(?\s*([월화수목금토일])\s*(?:요일)?\s*\)?)?/g)) {
-    const iso = inferYear(receivedOn, Number(m[1]), Number(m[2]));
-    if (!iso) continue;
-    const mis = wdCheck(iso, m[3]);
-    push({ date: iso, endDate: null, index: m.index ?? 0, len: m[0].length, text: m[0].trim(), confidence: mis ? 'inferred' : 'exact', weekdayMismatch: mis || undefined });
+    const y = inferYear(receivedOn, Number(m[1]), Number(m[2]));
+    if (!y) continue;
+    const mis = wdCheck(y.iso, m[3]);
+    push({ date: y.iso, endDate: null, index: m.index ?? 0, len: m[0].length, text: m[0].trim(), confidence: mis || y.back ? 'inferred' : 'exact', weekdayMismatch: mis || undefined });
   }
   // 3) 11/23(월), 11.23(월) — 요일 괄호가 있을 때만 날짜로 본다(분수·소수와 구분)
   for (const m of text.matchAll(/(?<![\d.])(\d{1,2})\s*[./]\s*(\d{1,2})\s*\(\s*([월화수목금토일])\s*\)/g)) {
-    const iso = inferYear(receivedOn, Number(m[1]), Number(m[2]));
-    if (!iso) continue;
-    const mis = wdCheck(iso, m[3]);
-    push({ date: iso, endDate: null, index: m.index ?? 0, len: m[0].length, text: m[0].trim(), confidence: mis ? 'inferred' : 'exact', weekdayMismatch: mis || undefined });
+    const y = inferYear(receivedOn, Number(m[1]), Number(m[2]));
+    if (!y) continue;
+    const mis = wdCheck(y.iso, m[3]);
+    push({ date: y.iso, endDate: null, index: m.index ?? 0, len: m[0].length, text: m[0].trim(), confidence: mis || y.back ? 'inferred' : 'exact', weekdayMismatch: mis || undefined });
   }
   // 4) 이번 주/다음 주/다다음 주 X요일
   for (const m of text.matchAll(/(이번|다음|다다음)\s*주\s*([월화수목금토일])\s*요일/g)) {
@@ -147,6 +147,7 @@ export function extractDates(text: string, receivedOn: string): DateMention[] {
   }
   // 6) 요일만: 다가오는 그 요일(오늘 포함 안 함) — 추정
   for (const m of text.matchAll(/(?<![가-힣])([월화수목금토일])\s*요일/g)) {
+    if (/(오늘|내일|모레|글피)\s*(?:은|는)?\s*$/.test(text.slice(Math.max(0, (m.index ?? 0) - 6), m.index ?? 0))) continue;
     const idx = WD.indexOf(m[1] as string);
     let diff = (idx - weekdayIdx(receivedOn) + 7) % 7;
     if (diff === 0) diff = 7;

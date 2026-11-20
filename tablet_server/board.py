@@ -53,7 +53,8 @@ def build(conn: sqlite3.Connection, weather: Any, adapter: Any, viewer: Dict[str
     drop = min((p["leaveHomeAt"] for p in attending_today), default=None)
     pick = min((p["pickupAt"] for p in attending_today), default=None)
     t_drop = min((p["leaveHomeAt"] for p in attending_tomorrow), default=None)
-    wx = weather.snapshot(conn, settings["location"], today, drop, pick, t_drop)
+    t_pick = min((p["pickupAt"] for p in attending_tomorrow), default=None)
+    wx = weather.snapshot(conn, settings["location"], today, drop, pick, t_drop, t_pick)
 
     notices = [n for n in bs.list_notices(conn) if n["status"] not in ("dismissed",)]
     review = [n for n in notices if n["status"] in ("needs_review", "pending_analysis")]
@@ -103,13 +104,40 @@ def build(conn: sqlite3.Connection, weather: Any, adapter: Any, viewer: Dict[str
     return out
 
 
+def _scrub(v: Any, names: List[str], to: str) -> Any:
+    """응답 안의 모든 문자열에서 아이 이름을 지운다(공지 제목·준비물·메모에 섞인 이름까지)."""
+    if isinstance(v, str):
+        for n in names:
+            v = v.replace(n, to)
+        return v
+    if isinstance(v, list):
+        return [_scrub(x, names, to) for x in v]
+    if isinstance(v, dict):
+        return {k: _scrub(x, names, to) for k, x in v.items()}
+    return v
+
+
 def apply_tv_privacy(b: Dict[str, Any], p: Dict[str, bool]) -> None:
     """TV(거실 화면)에서 가릴 정보를 지운다. 보호자 화면에는 적용하지 않는다."""
     b["privacy"] = p
+    # TV 화면은 준비물의 원 공지 제목을 쓰지 않는다: 항상 뺀다
+    for d in ("today", "tomorrow"):
+        for item in b["prep"][d]:
+            item["noticeTitle"] = None
+    if p.get("hideChildNames"):
+        names = sorted({c["displayName"] for c in b["children"] if c.get("displayName")}, key=len, reverse=True)
+        for k in ("notices", "prep", "events", "commute", "pickups", "tasks"):
+            b[k] = _scrub(b[k], names, "아이")
     if p.get("hideChildNames"):
         for i, c in enumerate(b["children"]):
             c["displayName"] = "우리 아이" if len(b["children"]) == 1 else f"아이 {i + 1}"
     if p.get("hideNoticeTitles"):
+        for d in ("today", "tomorrow"):
+            for plan in b["commute"][d]:
+                if plan.get("closedNote"):
+                    plan["closedNote"] = "어린이집 안내"
+                for c in plan.get("changes", []):
+                    c["note"] = None
         for n in b["notices"]["top"]:
             n["title"] = "확인할 공지" if n["status"] in ("needs_review", "pending_analysis") else "새 공지"
         for d in ("today", "tomorrow"):

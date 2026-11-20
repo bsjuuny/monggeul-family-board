@@ -221,6 +221,18 @@ def backup_db(db_path: Path, dest: Path) -> Path:
     return dest
 
 
+def prune_backups(folder: Path, prefix: str, keep: int = 10) -> None:
+    """같은 종류 백업은 최근 keep 개만 남긴다."""
+    if not folder.is_dir():
+        return
+    files = sorted(p for p in folder.iterdir() if p.name.startswith(prefix) and p.suffix == ".sqlite3")
+    for p in files[:-keep]:
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
+
 def migrate(db_path: Path, connect: Callable[[Path], sqlite3.Connection],
             log: Callable[[str], None] = lambda s: None, backup: bool = True) -> Optional[Path]:
     """필요한 마이그레이션을 적용한다. 적용했다면 사전 백업 경로를 돌려준다."""
@@ -236,6 +248,7 @@ def migrate(db_path: Path, connect: Callable[[Path], sqlite3.Connection],
     if backup:
         backup_path = db_path.parent / "backups" / f"pre-migrate-v{start}-to-v{todo[-1].version}-{_stamp()}.sqlite3"
         backup_db(db_path, backup_path)
+        prune_backups(backup_path.parent, "pre-migrate-", keep=10)
         log(f"마이그레이션 전 백업: {backup_path}")
     conn = connect(db_path)
     try:

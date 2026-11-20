@@ -56,6 +56,14 @@ describe('날짜 정규화 (받은 날 2026-11-20 금요일 기준)', () => {
     expect(one('11/24(화) 견학')).toMatchObject({ date: '2026-11-24', confidence: 'exact' });
     expect(extractDates('물 1/2 컵', R)).toEqual([]);
   });
+  it('자정·24시, 지난해로 당긴 날짜, "오늘 수요일"', () => {
+    expect(parseTime('오전 12시 30분')).toBe('00:30');
+    expect(parseTime('오후 12시')).toBe('12:00');
+    expect(parseTime('24:30')).toBeNull();
+    expect(extractDates('12월 24일 행사', '2027-01-05')[0]).toMatchObject({ date: '2026-12-24', confidence: 'inferred' });
+    expect(extractDates('1월 5일 개학', '2026-11-20')[0]).toMatchObject({ date: '2027-01-05', confidence: 'exact' });
+    expect(extractDates('오늘 금요일은 체육 수업이 있어요', R)).toHaveLength(1);
+  });
   it('요일이 틀리면 추정으로 낮춘다', () => {
     expect(one('11월 23일(금) 행사')).toMatchObject({ date: '2026-11-23', confidence: 'inferred', weekdayMismatch: true });
     expect(one('11월 23일(월) 행사')).toMatchObject({ confidence: 'exact' });
