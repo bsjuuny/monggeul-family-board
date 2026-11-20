@@ -23,11 +23,13 @@ export function toNewEvent(ev: Pick<NoticeEventRow, 'title' | 'date' | 'endDate'
   return { title: ev.title, allDay: false, startsAt, endsAt: new Date(Date.parse(startsAt) + 3600_000).toISOString(), visibility: 'family', note };
 }
 
-const snapOf = (ev: Pick<NoticeEventRow, 'title' | 'date' | 'endDate' | 'time'>): Snap => ({ title: ev.title, date: ev.date, endDate: ev.endDate, time: ev.time });
-const same = (a: Snap, b: Snap) => a.title === b.title && a.date === b.date && (a.endDate ?? null) === (b.endDate ?? null) && (a.time ?? null) === (b.time ?? null);
+/** 끝 날짜가 시작일과 같으면 하루짜리로 보고 비운다(캘린더는 하루 종일 일정의 끝 날짜를 시작일로 저장한다) */
+const oneDay = (date: string, end: string | null | undefined) => (end && end !== date ? end : null);
+const snapOf = (ev: Pick<NoticeEventRow, 'title' | 'date' | 'endDate' | 'time'>): Snap => ({ title: ev.title, date: ev.date, endDate: oneDay(ev.date, ev.endDate), time: ev.time });
+const same = (a: Snap, b: Snap) => a.title === b.title && a.date === b.date && oneDay(a.date, a.endDate) === oneDay(b.date, b.endDate) && (a.time ?? null) === (b.time ?? null);
 
 function calSnap(e: CalendarEvent): Snap {
-  if (e.allDay) return { title: e.title, date: e.startDate ?? '', endDate: e.endDate, time: null };
+  if (e.allDay) return { title: e.title, date: e.startDate ?? '', endDate: oneDay(e.startDate ?? '', e.endDate), time: null };
   const d = new Date(Date.parse(e.startsAt ?? '') + 9 * 3600_000).toISOString();
   return { title: e.title, date: d.slice(0, 10), endDate: null, time: d.slice(11, 16) };
 }

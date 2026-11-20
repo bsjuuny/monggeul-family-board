@@ -54,13 +54,25 @@ def iso_weekday(d: str) -> int:
 
 
 def _tx(conn: sqlite3.Connection):
+    """트랜잭션. 이미 트랜잭션 안이면 SAVEPOINT 로 감싼다(가져오기 전체를 한 번에 저장·취소하기 위해)."""
     class _T:
+        nested = False
+
         def __enter__(self_inner):
-            conn.execute("BEGIN IMMEDIATE")
+            if conn.in_transaction:
+                self_inner.nested = True
+                conn.execute("SAVEPOINT mgfb_sp")
+            else:
+                conn.execute("BEGIN IMMEDIATE")
             return conn
 
         def __exit__(self_inner, exc_type, exc, tb):
-            conn.execute("ROLLBACK" if exc_type else "COMMIT")
+            if self_inner.nested:
+                if exc_type:
+                    conn.execute("ROLLBACK TO mgfb_sp")
+                conn.execute("RELEASE mgfb_sp")
+            else:
+                conn.execute("ROLLBACK" if exc_type else "COMMIT")
             return False
 
     return _T()
@@ -95,6 +107,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "screen": {"morningFrom": "05:00", "afternoonFrom": "11:30", "eveningFrom": "18:00"},
     "notices": {"storeOriginal": False, "autoShowGeneral": True},
     "kidsnote": {"enabled": False, "times": ["07:00", "11:00", "16:00", "20:00"]},
+    "tvPrivacy": {"hideChildNames": False, "hideNoticeTitles": False, "hidePickup": False},
 }
 
 
@@ -174,6 +187,10 @@ def validate_setting(key: str, value: Any) -> Any:
         if not isinstance(value, dict):
             raise StoreError(400, "VALIDATION_ERROR", "공지 설정 형식이 올바르지 않아요.")
         return {"storeOriginal": bool(value.get("storeOriginal")), "autoShowGeneral": value.get("autoShowGeneral", True) is not False}
+    if key == "tvPrivacy":
+        if not isinstance(value, dict):
+            raise StoreError(400, "VALIDATION_ERROR", "TV 개인정보 설정 형식이 올바르지 않아요.")
+        return {k: value.get(k) is True for k in ("hideChildNames", "hideNoticeTitles", "hidePickup")}
     if key == "kidsnote":
         if not isinstance(value, dict):
             raise StoreError(400, "VALIDATION_ERROR", "키즈노트 설정 형식이 올바르지 않아요.")
@@ -646,6 +663,19 @@ def import_notices(conn: sqlite3.Connection, items: Any, actor: str, preview: bo
     """공지톡 JSON 가져오기. 미리보기면 저장하지 않고 항목별 결과만 돌려준다."""
     if not isinstance(items, list) or len(items) > 200:
         raise StoreError(400, "VALIDATION_ERROR", "가져올 공지 목록(최대 200건)이 필요해요.")
+    if not preview:
+        # 저장은 한 트랜잭션: 형식이 틀린 항목은 건너뛰되, 저장 중 예기치 못한 오류가 나면 하나도 남기지 않는다
+        checked = import_notices(conn, items, actor, preview=True)
+        with _tx(conn):
+            results = []
+            for r in checked["results"]:
+                if r["status"] == "new":
+                    res = create_notice(conn, {**items[r["index"]], "source": "gongjitalk"}, actor, allow_sources=("gongjitalk",))
+                    results.append({"index": r["index"], "status": "duplicate" if res["duplicate"] else "created", "id": res["notice"]["id"], "title": res["notice"]["title"]})
+                else:
+                    results.append(r)
+        summary = {k: sum(1 for r in results if r["status"] == k) for k in ("new", "created", "duplicate", "invalid")}
+        return {"preview": False, "results": results, "summary": summary}
     results = []
     for i, it in enumerate(items):
         try:

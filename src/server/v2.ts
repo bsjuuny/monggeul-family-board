@@ -137,8 +137,9 @@ export interface Settings {
   screen: { morningFrom: string; afternoonFrom: string; eveningFrom: string };
   notices: { storeOriginal: boolean; autoShowGeneral: boolean };
   kidsnote: { enabled: boolean; times: string[] };
+  tvPrivacy: { hideChildNames: boolean; hideNoticeTitles: boolean; hidePickup: boolean };
   weatherKeyConfigured: boolean;
-  _versions: Record<'location' | 'commute' | 'screen' | 'notices' | 'kidsnote', number>;
+  _versions: Record<'location' | 'commute' | 'screen' | 'notices' | 'kidsnote' | 'tvPrivacy', number>;
 }
 export type SettingKey = keyof Settings['_versions'];
 

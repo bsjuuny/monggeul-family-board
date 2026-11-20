@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // v2 보드 흐름: 실제 Python 서버 + 임시 SQLite (tablet_server/tools/run_e2e.py)
 const OWNER = { id: 'owner', pw: 'e2e-owner-pass' };
@@ -125,4 +128,29 @@ test('TV 연결: 코드로 연결하면 로그인 없이 보드만 보이고 관
   await tvPage.reload();
   await expect(tvPage.getByTestId('tv-pair')).toBeVisible();
   await tv.close();
+});
+
+test('공지톡 내보내기 파일 가져오기: 미리보기 → 가져오기 → 다시 올리면 이미 있음', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop-1024', '한 뷰포트에서만 실행');
+  await enter(page);
+  const stamp = Date.now();
+  const file = join(mkdtempSync(join(tmpdir(), 'gjt-')), 'gongjitalk-notices.json');
+  writeFileSync(file, JSON.stringify({ format: 'gongjitalk-export', version: 1, exportedAt: new Date().toISOString(), notices: [
+    { id: `notice-${stamp}`, createdAt: new Date().toISOString(), originalText: `내일 수영 수업이 있습니다. 수영복과 수건을 챙겨 보내주세요. (${stamp})`, summary: '', checklistItems: [] },
+    { id: 'broken', createdAt: 'nope' },
+  ] }));
+  await page.goto('./#/notices/import');
+  await page.getByLabel('내보내기 파일').setInputFiles(file);
+  const card = page.getByRole('region', { name: '가져오기 미리보기' });
+  await expect(card).toContainText('새 공지 1건');
+  await expect(card).toContainText('형식 오류 1건');
+  await card.getByRole('button', { name: '1건 가져오기' }).click();
+  await expect(page.getByRole('region', { name: '가져오기 미리보기' })).toContainText('새로 1건');
+  const list = await (await page.request.get('/api/notices')).json();
+  const mine = list.notices.find((n: { sourceId: string }) => n.sourceId === `notice-${stamp}`);
+  expect(mine).toMatchObject({ source: 'gongjitalk', hasOriginal: false, title: '수영 수업' });
+  await page.goto('./#/notices');
+  await page.goto('./#/notices/import');
+  await page.getByLabel('내보내기 파일').setInputFiles(file);
+  await expect(page.getByRole('region', { name: '가져오기 미리보기' })).toContainText('이미 있음 1건');
 });

@@ -83,7 +83,7 @@ def build(conn: sqlite3.Connection, weather: Any, adapter: Any, viewer: Dict[str
 
     st = kidsnote.get_state(conn)
     cfg = settings["kidsnote"]
-    return {
+    out = {
         "serverTime": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "today": today, "tomorrow": tomorrow,
         "family": fam, "viewer": viewer,
         "screen": {**settings["screen"], "mode": screen_mode(settings["screen"], now)},
@@ -98,3 +98,28 @@ def build(conn: sqlite3.Connection, weather: Any, adapter: Any, viewer: Dict[str
         "sync": {"name": adapter.name, "mode": adapter.mode, "available": adapter.available(), "enabled": cfg["enabled"],
                  "lastOkAt": st["lastOkAt"], "lastError": st["lastError"], "paused": st["paused"]},
     }
+    if viewer.get("kind") == "device":
+        apply_tv_privacy(out, settings["tvPrivacy"])
+    return out
+
+
+def apply_tv_privacy(b: Dict[str, Any], p: Dict[str, bool]) -> None:
+    """TV(거실 화면)에서 가릴 정보를 지운다. 보호자 화면에는 적용하지 않는다."""
+    b["privacy"] = p
+    if p.get("hideChildNames"):
+        for i, c in enumerate(b["children"]):
+            c["displayName"] = "우리 아이" if len(b["children"]) == 1 else f"아이 {i + 1}"
+    if p.get("hideNoticeTitles"):
+        for n in b["notices"]["top"]:
+            n["title"] = "확인할 공지" if n["status"] in ("needs_review", "pending_analysis") else "새 공지"
+        for d in ("today", "tomorrow"):
+            for e in b["events"][d]:
+                if e.get("source") == "notice":
+                    e["title"] = "어린이집 일정"
+    if p.get("hidePickup"):
+        for pk in b["pickups"]:
+            pk["assignee"] = None
+            pk["assigneeSource"] = None
+        for d in ("today", "tomorrow"):
+            for plan in b["commute"][d]:
+                plan["pickupAssignee"] = None

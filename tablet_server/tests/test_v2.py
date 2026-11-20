@@ -480,6 +480,62 @@ class BackupV2Tests(V2Server):
         self.assertEqual([n["title"] for n in lst["notices"]], ["백업 전"])  # 실패한 복원은 아무것도 바꾸지 않는다
 
 
+class AtomicImportAndPrivacyTests(V2Server):
+    def test_import_commit_is_all_or_nothing(self):
+        items = [notice_body(f"공지 {i}", "2026-11-0" + str(i + 1), digest(f"공지 {i}")) for i in range(3)]
+        real = bs.create_notice
+        calls = {"n": 0}
+
+        def flaky(conn, body, actor, **kw):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("디스크 오류 흉내")
+            return real(conn, body, actor, **kw)
+
+        with mock.patch.object(bs, "create_notice", flaky), redirect_stderr(io.StringIO()):
+            st, _, _ = self.owner.request("POST", "/api/notices/import", {"items": items, "preview": False})
+        self.assertEqual(st, 500)
+        _, lst, _ = self.owner.request("GET", "/api/notices")
+        self.assertEqual(lst["notices"], [])  # 첫 번째 것도 남지 않는다
+        st, res, _ = self.owner.request("POST", "/api/notices/import", {"items": items, "preview": False})
+        self.assertEqual(res["summary"]["created"], 3)
+
+    def test_tv_privacy_masks_only_on_tv(self):
+        self.put_doc(FAMILY_DOC)
+        self.setting("commute", {"children": {"c1": {"leaveHomeAt": "08:30", "arriveBy": "09:00", "pickupAt": "16:30", "pickupAssignee": "엄마"}}})
+        today = bs.today_kst()
+        self.owner.request("POST", "/api/notices", notice_body("x", today, digest("비밀 공지 제목", event=bs.add_days(today, 1))))
+        st, _, _ = self.setting("tvPrivacy", {"hideChildNames": True, "hideNoticeTitles": True, "hidePickup": True})
+        self.assertEqual(st, 200)
+        st, code, _ = self.owner.request("POST", "/api/devices/pairing-codes", {})
+        tv = Jar(self.port)
+        tv.request("POST", "/api/devices/pair", {"code": code["code"]})
+        _, b, _ = tv.request("GET", "/api/board")
+        self.assertEqual(b["children"][0]["displayName"], "우리 아이")
+        self.assertEqual(b["notices"]["top"][0]["title"], "새 공지")
+        self.assertTrue(all(p["assignee"] is None for p in b["pickups"]))
+        self.assertNotIn("서윤", json.dumps(b, ensure_ascii=False))
+        self.assertNotIn("비밀 공지 제목", json.dumps(b, ensure_ascii=False))
+        _, ob, _ = self.owner.request("GET", "/api/board")  # 보호자 화면은 그대로
+        self.assertEqual(ob["children"][0]["displayName"], "서윤")
+        self.assertEqual(ob["notices"]["top"][0]["title"], "비밀 공지 제목")
+
+    def test_device_token_extends_while_used(self):
+        st, code, _ = self.owner.request("POST", "/api/devices/pairing-codes", {})
+        tv = Jar(self.port)
+        _, dev, _ = tv.request("POST", "/api/devices/pair", {"code": code["code"]})
+        conn = app.connect(self.db)
+        old = int(time.time()) - 2 * 3600
+        conn.execute("UPDATE devices SET last_seen_at = ?, expires_at = ? WHERE id = ?", (old, old + 7200 + 600, dev["id"]))
+        conn.close()
+        st, _, _ = tv.request("GET", "/api/board")
+        self.assertEqual(st, 200)
+        conn = app.connect(self.db)
+        exp = conn.execute("SELECT expires_at FROM devices WHERE id = ?", (dev["id"],)).fetchone()[0]
+        conn.close()
+        self.assertGreater(exp, int(time.time()) + bs.DEVICE_IDLE_TTL - 60)
+
+
 # ───────────────────────── 등하원·픽업·보드 ─────────────────────────
 class CommuteBoardTests(V2Server):
     def setUp(self):

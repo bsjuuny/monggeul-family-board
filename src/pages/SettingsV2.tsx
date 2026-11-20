@@ -139,7 +139,22 @@ function ScreenSection({ s }: { s: Settings }) {
   );
 }
 
-function TvSection() {
+function TvPrivacy({ s }: { s: Settings }) {
+  const save = useSave();
+  const p = s.tvPrivacy;
+  const set = (k: keyof Settings['tvPrivacy'], v: boolean) => save.mutate({ key: 'tvPrivacy', value: { ...p, [k]: v }, version: s._versions.tvPrivacy });
+  return (
+    <div className="sync-box" data-testid="tv-privacy">
+      <strong>TV에서 가릴 정보</strong>
+      <p className="muted">손님이 거실 TV를 볼 수 있어요. 켠 항목은 TV에서만 가리고, 보호자 화면에는 그대로 보여요.</p>
+      <label className="check"><input type="checkbox" checked={p.hideChildNames} disabled={save.isPending} onChange={(e) => set('hideChildNames', e.target.checked)} /> 아이 이름 가리기</label>
+      <label className="check"><input type="checkbox" checked={p.hideNoticeTitles} disabled={save.isPending} onChange={(e) => set('hideNoticeTitles', e.target.checked)} /> 공지 제목 가리기</label>
+      <label className="check"><input type="checkbox" checked={p.hidePickup} disabled={save.isPending} onChange={(e) => set('hidePickup', e.target.checked)} /> 픽업 담당자 가리기</label>
+    </div>
+  );
+}
+
+function TvSection({ s }: { s: Settings }) {
   const { v2 } = useServices();
   const qc = useQueryClient();
   const toast = useToast();
@@ -160,6 +175,7 @@ function TvSection() {
         ))}
         {!live.length && <li className="muted">연결된 TV가 없어요.</li>}
       </ul>
+      <TvPrivacy s={s} />
     </Section>
   );
 }
@@ -218,7 +234,7 @@ export function V2SettingsSections() {
       <WeatherSection s={q.data} />
       <CommuteSection s={q.data} />
       <ScreenSection s={q.data} />
-      <TvSection />
+      <TvSection s={q.data} />
       <NoticeSyncSection s={q.data} />
       <UpdateSection />
     </>
