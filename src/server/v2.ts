@@ -38,6 +38,14 @@ export type Weather =
       error: string | null;
     };
 
+/** 등원 없는 날 카드에 보여 줄 다음 등원(3주 안) */
+export interface NextCommute {
+  date: string;
+  leaveHomeAt: string;
+  arriveBy: string;
+  needsReview: boolean;
+}
+
 export interface CommutePlan {
   childId: string;
   date: string;
@@ -113,7 +121,7 @@ export interface Board {
   viewer: { kind: 'user' | 'device'; label: string | null; role: 'owner' | 'adult' | null };
   screen: { morningFrom: string; afternoonFrom: string; eveningFrom: string; mode: Period };
   children: Array<{ id: string; displayName: string; avatarKey: string; habits: { done: number; total: number; pending: number } }>;
-  commute: { configured: boolean; today: CommutePlan[]; tomorrow: CommutePlan[] };
+  commute: { configured: boolean; today: CommutePlan[]; tomorrow: CommutePlan[]; nextAfterToday?: NextCommute | null; nextAfterTomorrow?: NextCommute | null };
   weather: Weather;
   notices: { needsReview: number; top: NoticeCard[] };
   prep: { today: PrepItem[]; tomorrow: PrepItem[] };

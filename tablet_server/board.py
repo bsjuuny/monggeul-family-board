@@ -7,11 +7,31 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import board_store as bs
 import display
 import kidsnote
+
+
+NEXT_LOOKAHEAD_DAYS = 21
+
+
+def _next_commutes(conn: sqlite3.Connection, settings: Dict[str, Any], kids: List[Dict[str, Any]], today: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """오늘 다음·내일 다음의 첫 등원일(등원 없는 날 카드에 '다음 등원'으로 보여 준다). 3주 안에 없으면 None."""
+    if not kids or not settings["commute"]["children"]:
+        return None, None
+    end = bs.add_days(today, NEXT_LOOKAHEAD_DAYS + 1)
+    exceptions = bs.list_exceptions(conn, today, end)
+    days: List[Dict[str, Any]] = []
+    for i in range(1, NEXT_LOOKAHEAD_DAYS + 2):
+        d = bs.add_days(today, i)
+        going = [p for p in (bs.commute_day(settings, exceptions, c["id"], d) for c in kids) if p and p["attends"]]
+        if going:
+            first = min(going, key=lambda p: p["leaveHomeAt"])
+            days.append({"date": d, "leaveHomeAt": first["leaveHomeAt"], "arriveBy": first["arriveBy"], "needsReview": any(p["needsReview"] for p in going)})
+    tomorrow = bs.add_days(today, 1)
+    return (days[0] if days else None), next((x for x in days if x["date"] > tomorrow), None)
 
 
 def board_day(screen: Dict[str, str], now: datetime) -> str:
@@ -59,6 +79,7 @@ def build(conn: sqlite3.Connection, weather: Any, adapter: Any, viewer: Dict[str
     habits = display.habits_today(doc, today)
     exceptions = bs.list_exceptions(conn, today, tomorrow)
     plans = {d: [p for p in (bs.commute_day(settings, exceptions, c["id"], d) for c in kids) if p] for d in (today, tomorrow)}
+    next_after = _next_commutes(conn, settings, kids, today)
     attending_today = [p for p in plans[today] if p["attends"]]
     attending_tomorrow = [p for p in plans[tomorrow] if p["attends"]]
     drop = min((p["leaveHomeAt"] for p in attending_today), default=None)
@@ -100,7 +121,8 @@ def build(conn: sqlite3.Connection, weather: Any, adapter: Any, viewer: Dict[str
         "family": fam, "viewer": viewer,
         "screen": {**settings["screen"], "mode": screen_mode(settings["screen"], now)},
         "children": [{**c, "habits": habits.get(c["id"], {"done": 0, "total": 0, "pending": 0})} for c in kids],
-        "commute": {"configured": bool(settings["commute"]["children"]), "today": plans[today], "tomorrow": plans[tomorrow]},
+        "commute": {"configured": bool(settings["commute"]["children"]), "today": plans[today], "tomorrow": plans[tomorrow],
+                    "nextAfterToday": next_after[0], "nextAfterTomorrow": next_after[1]},
         "weather": wx,
         "notices": {"needsReview": len(review), "top": [_notice_card(n) for n in top]},
         "prep": {"today": [p for p in prep if p["date"] == today], "tomorrow": [p for p in prep if p["date"] == tomorrow]},
