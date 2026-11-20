@@ -222,7 +222,7 @@ export function v2(api: ServerApi) {
     settings: () => api.request<Settings>('GET', '/api/settings'),
     putSetting: <K extends SettingKey>(key: K, value: unknown, baseVersion: number) =>
       api.request<{ key: K; value: unknown; version: number }>('PUT', `/api/settings/${key}`, { value, baseVersion }),
-    setWeatherKey: (key: string) => api.request<{ saved: boolean; check: 'ok' | 'unreachable'; message: string }>('PUT', '/api/weather-key', { key }),
+    setWeatherKey: (key: string) => api.request<{ saved: boolean; check: 'ok'; message: string }>('PUT', '/api/weather-key', { key }),
     deleteWeatherKey: () => api.request<{ removed: boolean }>('DELETE', '/api/weather-key'),
     // TV
     createPairingCode: () => api.request<{ code: string; expiresAt: string }>('POST', '/api/devices/pairing-codes', {}),

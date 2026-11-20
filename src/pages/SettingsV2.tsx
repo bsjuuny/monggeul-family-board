@@ -82,13 +82,18 @@ function WeatherKey({ s }: { s: Settings }) {
   const remove = useMutation({
     mutationFn: () => v2.deleteWeatherKey(),
     onSuccess: async () => { toast.info('기상청 키를 지웠어요.'); setMsg(null); await done(); },
+    onError: (e) => setMsg({ tone: 'err', text: isFamilyBoardError(e) ? e.message : '키를 지우지 못했어요.' }),
   });
+  const onTablet = ['127.0.0.1', 'localhost', '[::1]'].includes(window.location.hostname);
   return (
     <div className="sync-box" data-testid="weather-key">
       <strong>기상청 서비스 키 {s.weatherKeyConfigured ? '· 설정됨' : '· 없음'}</strong>
       <p className="muted">공공데이터포털에서 '기상청_단기예보 조회서비스'를 활용 신청하고 받은 일반 인증키(Decoding)를 넣어 주세요. 무료예요. 저장한 키는 태블릿 안에만 있고 다시 보여 주지 않아요.</p>
       {s.weatherKeySource === 'env' && <p className="muted">지금은 서버 환경변수의 키를 쓰고 있어요.</p>}
-      {isOwner ? (
+      {s.weatherKeySource === 'env' ? null : !isOwner ? <p className="muted">키는 owner 계정만 넣을 수 있어요.</p> : !onTablet ? (
+        <p className="muted" data-testid="weather-key-local-only">키가 Wi-Fi로 오가지 않도록 <strong>태블릿에서 직접</strong> 브라우저로 <code>http://127.0.0.1:8787</code> 을 열고 owner로 로그인해 이 칸에 넣어 주세요.
+          (또는 Termux에서 <code>python tablet_server/app.py --set-weather-key</code>)</p>
+      ) : (
         <>
           <div className="row-form">
             <input type="password" autoComplete="off" spellCheck={false} aria-label="기상청 서비스 키" placeholder={s.weatherKeyConfigured ? '새 키로 바꾸려면 붙여넣기' : '서비스 키 붙여넣기'}
@@ -98,7 +103,7 @@ function WeatherKey({ s }: { s: Settings }) {
           </div>
           {msg && <p className={msg.tone === 'ok' ? 'muted' : 'err'} role="status">{msg.text}</p>}
         </>
-      ) : <p className="muted">키는 owner 계정만 넣을 수 있어요.</p>}
+      )}
     </div>
   );
 }

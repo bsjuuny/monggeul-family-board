@@ -104,6 +104,7 @@ class Config:
     login_window: int = 600
     notice_source: Optional[str] = None  # 'mock:<파일>' 이면 모의 공지 수집(개발·QA 전용)
     analyzer: Optional[Any] = None
+    allow_remote_key_entry: bool = False  # 테스트 전용: 루프백이 아닌 곳에서도 키 입력 허용
     weather_fetcher: Optional[Callable[[str], Any]] = None
 
 
@@ -282,6 +283,14 @@ class RateLimiter:
 
 
 # ───────────────────────── HTTP ─────────────────────────
+
+
+def key_entry_allowed(client_ip: str, config: "Config") -> bool:
+    """기상청 키 입력은 태블릿 자신(루프백)에서 온 요청만 받는다(평문 HTTP로 Wi-Fi에 키가 오가지 않게)."""
+    try:
+        return ipaddress.ip_address(client_ip).is_loopback or config.allow_remote_key_entry
+    except ValueError:
+        return False
 
 
 def _is_lan_host(host: str) -> bool:
@@ -588,6 +597,10 @@ class Handler(BaseHTTPRequestHandler):
         p = self._user(conn)
         if p["user"]["role"] != "owner":
             raise ApiError(403, "FORBIDDEN", "기상청 키는 owner만 넣을 수 있어요.")
+        if not key_entry_allowed(self.client_address[0], self.server.config):
+            raise ApiError(403, "LOCAL_ONLY", "키가 Wi-Fi로 오가지 않도록 태블릿에서 직접 http://127.0.0.1:8787 을 열어 넣어 주세요.")
+        if key_source(self.server.config.db_path.parent) == "env":
+            raise ApiError(409, "KEY_FROM_ENV", "지금은 서버 환경변수(MGFB_KMA_KEY)의 키를 쓰고 있어요. 환경변수를 지운 뒤 다시 넣어 주세요.")
         body = self._read_json()
         key = body.get("key") if isinstance(body, dict) else None
         if not isinstance(key, str) or not key.strip() or len(key.strip()) > 400 or any(c.isspace() for c in key.strip()):
@@ -598,13 +611,15 @@ class Handler(BaseHTTPRequestHandler):
         if result == "invalid":
             audit(conn, p["actor"], "weather_key_rejected")
             raise ApiError(400, "WEATHER_KEY_INVALID", f"{message} 키를 저장하지 않았어요.")
+        if result == "unreachable":  # 확인하지 못한 키로 기존 키를 덮어쓰지 않는다
+            audit(conn, p["actor"], "weather_key_unverified")
+            raise ApiError(503, "WEATHER_UNREACHABLE", f"지금 기상청에 연결할 수 없어 키를 확인하지 못했어요({message}). 태블릿 인터넷을 확인한 뒤 다시 시도해 주세요. 키는 저장하지 않았어요.")
         save_key(self.server.config.db_path.parent, key.strip())
         self.server.weather.reset_failures()
         if loc:
             self.server.weather.refresh(conn, nx, ny, force=True)
         audit(conn, p["actor"], "weather_key_set", result)
-        self._send_json(200, {"saved": True, "check": result,
-                              "message": message if result == "ok" else f"키는 저장했어요. 다만 지금은 기상청에 연결하지 못했어요({message}). 태블릿 인터넷을 확인해 주세요."})
+        self._send_json(200, {"saved": True, "check": result, "message": message})
 
     def _weather_key_delete(self, conn, query) -> None:
         p = self._user(conn)

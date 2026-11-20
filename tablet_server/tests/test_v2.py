@@ -592,6 +592,42 @@ class ReviewFixTests(V2Server):
         st, _, _ = self.owner.request("PUT", "/api/weather-key", {"key": "has space"})
         self.assertEqual(st, 400)
 
+    def test_key_entry_only_from_tablet_itself(self):
+        self.assertTrue(app.key_entry_allowed("127.0.0.1", self.config))
+        self.assertTrue(app.key_entry_allowed("::1", self.config))
+        self.assertFalse(app.key_entry_allowed("192.168.0.23", self.config))
+        self.assertFalse(app.key_entry_allowed("not-an-ip", self.config))
+
+    def test_unreachable_check_does_not_overwrite_key_and_env_key_blocks(self):
+        with mock.patch.dict("os.environ", {"MGFB_KMA_KEY": ""}):
+            self.owner.request("PUT", "/api/weather-key", {"key": "first-good-key"})
+            self.weather_fail = True
+            st, err, _ = self.owner.request("PUT", "/api/weather-key", {"key": "typo-key"})
+            self.assertEqual((st, err["error"]["code"]), (503, "WEATHER_UNREACHABLE"))
+            self.assertEqual((self.db.parent / "kma_key.txt").read_text(encoding="utf-8"), "first-good-key")
+        with mock.patch.dict("os.environ", {"MGFB_KMA_KEY": "env-key"}):
+            st, err, _ = self.owner.request("PUT", "/api/weather-key", {"key": "another"})
+            self.assertEqual((st, err["error"]["code"]), (409, "KEY_FROM_ENV"))
+
+    def test_event_rows_match_by_content_not_position(self):
+        two = digest("행사", dates=[{"date": "2026-11-25", "text": "운동회", "kind": "event", "confidence": "exact"},
+                                    {"date": "2026-11-28", "text": "발표회", "kind": "event", "confidence": "exact"}])
+        _, res, _ = self.owner.request("POST", "/api/notices", notice_body("두 행사", "2026-11-20", two))
+        n = res["notice"]
+        _, evs, _ = self.owner.request("GET", f"/api/notice-events?noticeId={n['id']}")
+        by_title = {e["title"]: e for e in evs["events"]}
+        for t, cal in (("운동회", "cal_A"), ("발표회", "cal_B")):
+            self.owner.request("PUT", f"/api/notice-events/{by_title[t]['id']}/link", {"calendarEventId": cal, "snapshot": {"title": t}})
+        # 순서를 바꾸고, 운동회를 지운 뒤 새 행사를 넣는다
+        swapped = digest("행사", dates=[{"date": "2026-11-28", "text": "발표회", "kind": "event", "confidence": "exact"},
+                                        {"date": "2026-11-30", "text": "재롱잔치", "kind": "event", "confidence": "exact"}])
+        _, n2, _ = self.owner.request("PUT", f"/api/notices/{n['id']}", {"baseVersion": n["version"], "digest": swapped})
+        _, evs, _ = self.owner.request("GET", f"/api/notice-events?noticeId={n['id']}")
+        live = {e["title"]: e["calendarEventId"] for e in evs["events"] if not e["deleted"]}
+        gone = {e["title"]: e["calendarEventId"] for e in evs["events"] if e["deleted"]}
+        self.assertEqual(live, {"발표회": "cal_B", "재롱잔치": None})  # 새 행사는 지운 행의 연결을 물려받지 않는다
+        self.assertEqual(gone, {"운동회": "cal_A"})  # 지운 행사는 연결을 들고 사라진다(캘린더 정리 대상)
+
     def test_non_owner_cannot_force_store_original(self):
         mom = self.login("mom", ADULT_PW)
         _, res, _ = mom.request("POST", "/api/notices", {**notice_body("원문", "2026-11-20", digest()), "storeOriginal": True})

@@ -483,25 +483,36 @@ def _apply_derived(conn: sqlite3.Connection, notice_id: str, dg: Dict[str, Any],
         elif not cur["user_edited"]:
             conn.execute("UPDATE commute_exceptions SET needs_review=?, end_date=?, note=?, deleted_at=NULL, updated_at=? WHERE id=?",
                          (1 if review else 0, e["endDate"], e["note"], stamp, cur["id"]))
-    new_keys = {_key(notice_id, "ev", i) for i in range(len(d["events"]))}
-    spare = [r for r in conn.execute("SELECT id, item_key, date FROM notice_events WHERE notice_id = ? ORDER BY created_at, id", (notice_id,)).fetchall()
-             if r["item_key"] not in new_keys]
-    for i, ev in enumerate(d["events"]):
-        k = _key(notice_id, "ev", i)
-        keep_ev.add(k)
-        cur = conn.execute("SELECT id FROM notice_events WHERE item_key = ?", (k,)).fetchone()
-        if cur is None and spare:
-            # 이 키가 처음이면 예전 형식 행(날짜 기반 키)을 이어받아 캘린더 연결을 유지한다
-            old = next((r for r in spare if r["date"] == ev["date"]), spare[0])
-            spare.remove(old)
-            conn.execute("UPDATE notice_events SET item_key = ? WHERE id = ?", (k, old["id"]))
-            cur = conn.execute("SELECT id FROM notice_events WHERE id = ?", (old["id"],)).fetchone()
-        if cur is None:
+    # 행사 행은 위치가 아니라 내용으로 맞춘다(순서가 바뀌어도 캘린더 연결이 다른 행사로 넘어가지 않게).
+    # 살아 있는 행만 짝짓고, 지워진 행은 되살리지 않는다(지운 행의 캘린더 연결을 새 행사가 물려받지 않게).
+    live = [dict(r) for r in conn.execute("SELECT id, item_key, date, title FROM notice_events WHERE notice_id = ? AND deleted_at IS NULL ORDER BY created_at, id",
+                                          (notice_id,)).fetchall()]
+    events = list(d["events"])
+    single = len(events) == 1 and len(live) == 1  # 고치기 전후 모두 행사가 하나뿐인 공지
+    pairs: List[Tuple[Dict[str, Any], Optional[Dict[str, Any]]]] = []
+    for match in (lambda r, e: r["date"] == e["date"] and r["title"] == e["title"],  # 1) 같은 날짜·제목
+                  lambda r, e: r["date"] == e["date"],                                # 2) 같은 날짜(제목만 고침)
+                  lambda r, e: r["title"] == e["title"]):                             # 3) 같은 제목(날짜만 고침)
+        for e in list(events):
+            r = next((x for x in live if match(x, e)), None)
+            if r is not None:
+                live.remove(r)
+                events.remove(e)
+                pairs.append((e, r))
+    if single and events and live:  # 4) 하나뿐인 행사의 날짜·제목을 함께 고친 경우(행사를 바꿔 넣은 경우와 구분)
+        pairs.append((events.pop(), live.pop()))
+    pairs += [(e, None) for e in events]
+    for ev, row in pairs:
+        if row is None:
+            nid_ = new_id("nev")
+            k = _key(notice_id, "ev", nid_)
             conn.execute("INSERT INTO notice_events(id, item_key, notice_id, date, end_date, time, title, kind, needs_review, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                         (new_id("nev"), k, notice_id, ev["date"], ev["endDate"], ev["time"], ev["title"], ev["kind"], 1 if review else 0, stamp, stamp))
+                         (nid_, k, notice_id, ev["date"], ev["endDate"], ev["time"], ev["title"], ev["kind"], 1 if review else 0, stamp, stamp))
         else:
-            conn.execute("UPDATE notice_events SET date=?, end_date=?, time=?, title=?, needs_review=?, deleted_at=NULL, updated_at=? WHERE id=?",
-                         (ev["date"], ev["endDate"], ev["time"], ev["title"], 1 if review else 0, stamp, cur["id"]))
+            k = row["item_key"]
+            conn.execute("UPDATE notice_events SET date=?, end_date=?, time=?, title=?, needs_review=?, updated_at=? WHERE id=?",
+                         (ev["date"], ev["endDate"], ev["time"], ev["title"], 1 if review else 0, stamp, row["id"]))
+        keep_ev.add(k)
     # 더 이상 요약에 없는 파생 항목은 감춘다(사용자가 고친 것은 남긴다)
     for table, keep in (("prep_items", keep_prep), ("commute_exceptions", keep_exc)):
         for r in conn.execute(f"SELECT id, item_key, user_edited FROM {table} WHERE notice_id = ? AND deleted_at IS NULL", (notice_id,)).fetchall():
