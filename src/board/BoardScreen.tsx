@@ -1,14 +1,67 @@
 // 몽글 동화형 메인 보드 (디자인 명세 docs/design/v2/DESIGN_SPEC.md)
 // 홈(성인)과 TV(읽기 전용)가 같은 화면을 쓴다. 그림·캐릭터 레이어와 데이터 컴포넌트를 분리한다.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import type React from 'react';
 import { Link } from 'react-router-dom';
-import type { Board, Period, PrepItem } from '../server/v2';
+import type { Board, NoticeCard as NoticeCardData, Period, PrepItem } from '../server/v2';
 import { Bodeuli, Jjokkomi, Monggeul, Nabi, Pogeuni } from '../ui/characters';
 import type { CharacterProps } from '../ui/characters';
 import { commuteView, dateKo, greeting, kstHm, periodAt, periodEndsAt, shortDateKo, splitUnits, weatherPhrase } from './format';
 import { Icon, adviceIcon, weatherIcon } from './icons';
 
 const PERIOD_LABEL: Record<Period, string> = { morning: '아침', afternoon: '오후', evening: '저녁' };
+
+/** 대화상자: 열리면 첫 버튼으로 포커스, Tab 은 안에서만 돌고, Escape 로 닫고, 닫히면 원래 자리로 포커스를 돌려준다 */
+export function useDialog(open: boolean, firstRef: React.RefObject<HTMLElement | null>, onClose: () => void) {
+  useEffect(() => {
+    if (!open) return;
+    const back = document.activeElement as HTMLElement | null;
+    firstRef.current?.focus();
+    const panel = firstRef.current?.closest('[role="dialog"]') as HTMLElement | null;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
+      if (e.key !== 'Tab' || !panel) return;
+      const items = [...panel.querySelectorAll<HTMLElement>('a[href], button:not([disabled]):not([tabindex="-1"]), input, select, textarea')];
+      if (!items.length) return;
+      const first = items[0] as HTMLElement;
+      const last = items[items.length - 1] as HTMLElement;
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      back?.focus?.();
+    };
+  }, [open, firstRef, onClose]);
+}
+
+/** 리모컨 방향키: 카드 사이를 화면 위치 기준으로 이동한다(시간대 탭 안에서는 탭 규칙을 쓴다) */
+function onBoardArrows(e: KeyboardEvent<HTMLDivElement>) {
+  const dirs: Record<string, [number, number]> = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+  const d = dirs[e.key];
+  const cur = document.activeElement as HTMLElement | null;
+  if (!d || !cur || cur.closest('[role="tablist"]') || cur.closest('[role="dialog"]') || /INPUT|SELECT|TEXTAREA/.test(cur.tagName)) return;
+  const root = e.currentTarget;
+  const from = cur.getBoundingClientRect();
+  const cx = from.left + from.width / 2;
+  const cy = from.top + from.height / 2;
+  let best: HTMLElement | null = null;
+  let bestScore = Infinity;
+  for (const el of root.querySelectorAll<HTMLElement>('a[href], button:not([disabled]):not([tabindex="-1"])')) {
+    if (el === cur) continue;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const dx = r.left + r.width / 2 - cx;
+    const dy = r.top + r.height / 2 - cy;
+    const along = dx * d[0] + dy * d[1];
+    if (along <= 4) continue;
+    const across = Math.abs(dx * d[1]) + Math.abs(dy * d[0]);
+    const score = along + across * 2;
+    if (score < bestScore) { bestScore = score; best = el; }
+  }
+  if (best) { e.preventDefault(); best.focus(); }
+}
 const OVERRIDE_KEY = 'mgfb.periodOverride';
 
 /** 자동 시간대 + 수동 전환(다음 자동 전환 시각까지만 유지) */
@@ -190,7 +243,7 @@ function WeatherCard({ board, period, interactive }: { board: Board; period: Per
               </div>
             </div>
             {advice.length > 0
-              ? <ul className="v2-chips" aria-label="옷차림·우산 안내">{advice.map((a) => <li key={a.code} className={`v2-chip v2-chip--${a.tone}`}><Icon name={adviceIcon(a.code)} size={20} />{a.text}</li>)}</ul>
+              ? <ul className="v2-chips" aria-label="옷차림·우산 안내">{advice.slice(0, 3).map((a) => <li key={a.code} className={`v2-chip v2-chip--${a.tone}`}><Icon name={adviceIcon(a.code)} size={20} />{a.text}</li>)}</ul>
               : <p className="v2-muted">등하원 시각 예보가 없어 옷차림 안내를 쉬어요</p>}
             <dl className="v2-mini">
               {evening ? (
@@ -212,7 +265,28 @@ function WeatherCard({ board, period, interactive }: { board: Board; period: Per
   );
 }
 
+function NoticePeek({ n, today, onClose }: { n: NoticeCardData; today: string; onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useDialog(true, closeRef, onClose);
+  return (
+    <div className="v2-menu v2-peek" role="dialog" aria-modal="true" aria-labelledby="v2-peek-title">
+      <button type="button" className="v2-menu__backdrop" aria-label="닫기" tabIndex={-1} onClick={onClose} />
+      <div className="v2-menu__panel">
+        <h2 id="v2-peek-title">{n.title}<button ref={closeRef} type="button" className="v2-menu__close" onClick={onClose} aria-label="닫기"><Icon name="close" /></button></h2>
+        <p className="v2-notice__badges">
+          {n.status === 'needs_review' && <Badge tone="warning" icon="alert">확인 필요</Badge>}
+          {n.needsReply && <Badge tone="reply" icon="chat">답장 필요</Badge>}
+        </p>
+        {n.eventDate && <p className="v2-peek__line"><Icon name="calendar" size={20} />{shortDateKo(n.eventDate, today)} · {dateKo(n.eventDate)}</p>}
+        {n.reviewReasons.length > 0 && <p className="v2-peek__line"><Icon name="alert" size={20} />확인할 것: {n.reviewReasons.join(', ')}</p>}
+        <p className="v2-muted">자세한 내용과 확인은 보호자 휴대폰의 '공지 정리'에서 할 수 있어요.</p>
+      </div>
+    </div>
+  );
+}
+
 function NoticeCard({ board, interactive }: { board: Board; interactive: boolean }) {
+  const [peek, setPeek] = useState<NoticeCardData | null>(null);
   const top = board.notices.top;
   const shown = top.slice(0, 2);
   const rest = top.length - shown.length;
@@ -239,11 +313,12 @@ function NoticeCard({ board, interactive }: { board: Board; interactive: boolean
                 <span className="v2-notice__sub">{n.eventDate ? `${shortDateKo(n.eventDate, board.today)} · ` : ''}{n.reviewReasons.length ? n.reviewReasons.join(' · ') : `${shortDateKo(n.receivedOn, board.today)} 받은 공지`}</span>
               </>
             );
-            return <li key={n.id} data-testid="board-notice">{interactive ? <Link className="v2-notice" to={`/notices/${n.id}`}>{inner}</Link> : <div className="v2-notice">{inner}</div>}</li>;
+            return <li key={n.id} data-testid="board-notice">{interactive ? <Link className="v2-notice" to={`/notices/${n.id}`}>{inner}</Link> : <button type="button" className="v2-notice v2-notice--peek" onClick={() => setPeek(n)}>{inner}</button>}</li>;
           })}
         </ul>
       )}
       {rest > 0 && (interactive ? <Link className="v2-more" to="/notices">그 밖의 소식 {rest}건</Link> : <p className="v2-more">그 밖의 소식 {rest}건</p>)}
+      {peek && <NoticePeek n={peek} today={board.today} onClose={() => setPeek(null)} />}
     </section>
   );
 }
@@ -260,7 +335,7 @@ function PrepCard({ board, period, interactive, onToggle }: { board: Board; peri
   return (
     <section className="v2-card v2-prep" aria-labelledby="v2-prep-title">
       <div className="v2-card__head">
-        <h2 id="v2-prep-title" className="v2-card__title"><Icon name="bag" />{tomorrow ? '내일 준비물' : period === 'afternoon' ? '하원·내일 준비' : '오늘 준비물'}</h2>
+        <h2 id="v2-prep-title" className="v2-card__title"><Icon name="bag" />{tomorrow ? '내일 준비물' : period === 'afternoon' ? '하원 준비·내일 준비물' : '오늘 준비물'}</h2>
         {tomorrow && period === 'morning' && <span className="v2-muted">오늘은 없어요</span>}
       </div>
       {shown.length === 0 ? (
@@ -282,7 +357,7 @@ function PrepCard({ board, period, interactive, onToggle }: { board: Board; peri
         </ul>
       )}
       {events.length > 0 && (
-        <p className="v2-prep__events"><Icon name="calendar" size={20} />{events.slice(0, 2).map((e) => `${e.time ?? (e.startsAt ? kstHm(new Date(e.startsAt)) : '')} ${e.title}`.trim()).join(' · ')}{events.length > 2 ? ` 외 ${events.length - 2}` : ''}</p>
+        <p className="v2-prep__events"><Icon name="calendar" size={20} /><span className="v2-ellipsis">{events.slice(0, 2).map((e) => `${e.time ?? (e.startsAt ? kstHm(new Date(e.startsAt)) : '')} ${e.title}`.trim()).join(' · ')}{events.length > 2 ? ` 외 ${events.length - 2}` : ''}</span></p>
       )}
     </section>
   );
@@ -330,7 +405,8 @@ export function BoardScreen({ board, now, variant, online, menu, onTogglePrep, o
   const scene = { morning: 'scene-morning', afternoon: 'scene-afternoon', evening: 'scene-evening' }[period];
 
   return (
-    <div className="v2-board" data-period={period} data-variant={variant} data-testid={testId}>
+    <div className="v2-board" data-period={period} data-variant={variant} data-testid={testId} onKeyDown={onBoardArrows}
+      style={{ ['--v2-paper' as string]: `url("${new URL(`${import.meta.env.BASE_URL}art/board/paper-texture.webp`, document.baseURI).href}")` }}>
       <div className={`v2-board__inner${banner ? ' has-banner' : ''}`}>
         {banner && <div className={`v2-banner v2-banner--${banner.tone}`} role="status" data-testid="v2-banner"><Icon name={banner.icon} size={20} />{banner.text}</div>}
         <header className="v2-hero">

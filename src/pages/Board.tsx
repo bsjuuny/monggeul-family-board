@@ -1,8 +1,8 @@
 // 메인 보드(홈, 성인)와 TV 화면(/display). 같은 BoardScreen 을 쓴다.
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BoardScreen } from '../board/BoardScreen';
+import { BoardScreen, useDialog } from '../board/BoardScreen';
 import { Icon } from '../board/icons';
 import { useNow, useOnline, usePageTitle, useServices } from '../app/context';
 import { useLogout } from '../app/Shell';
@@ -61,12 +61,9 @@ function HomeMenu() {
   const [open, setOpen] = useState(false);
   const logout = useLogout();
   const toast = useToast();
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useDialog(open, closeRef, close);
   return (
     <>
       <button type="button" className="v2-menu-btn" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-expanded={open} data-testid="board-menu">
@@ -74,9 +71,9 @@ function HomeMenu() {
       </button>
       {open && (
         <div className="v2-menu" role="dialog" aria-modal="true" aria-label="메뉴">
-          <button type="button" className="v2-menu__backdrop" aria-label="메뉴 닫기" onClick={() => setOpen(false)} />
+          <button type="button" className="v2-menu__backdrop" aria-label="메뉴 닫기" tabIndex={-1} onClick={() => setOpen(false)} />
           <nav className="v2-menu__panel" aria-label="상세 메뉴">
-            <h2>메뉴<button type="button" className="v2-menu__close" onClick={() => setOpen(false)} aria-label="닫기"><Icon name="close" /></button></h2>
+            <h2>메뉴<button ref={closeRef} type="button" className="v2-menu__close" onClick={() => setOpen(false)} aria-label="닫기"><Icon name="close" /></button></h2>
             {MENU.map((m) => <Link key={m.to} to={m.to} onClick={() => setOpen(false)}><Icon name={m.icon} />{m.label}</Link>)}
             <FullscreenButton className="v2-menu__item" />
             <button type="button" className="v2-menu__item" onClick={() => void logout().catch(() => toast.error('로그아웃하지 못했어요.'))}><Icon name="close" />로그아웃</button>
@@ -161,14 +158,17 @@ function TvCorner({ viewer, onUnpaired }: { viewer: Board['viewer']; onUnpaired:
   const { v2 } = useServices();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useDialog(open, closeRef, close);
   return (
     <>
       <button type="button" className="v2-menu-btn v2-menu-btn--quiet" onClick={() => setOpen(true)} aria-label="화면 메뉴"><Icon name="menu" /></button>
       {open && (
         <div className="v2-menu" role="dialog" aria-modal="true" aria-label="화면 메뉴">
-          <button type="button" className="v2-menu__backdrop" aria-label="닫기" onClick={() => setOpen(false)} />
+          <button type="button" className="v2-menu__backdrop" aria-label="닫기" tabIndex={-1} onClick={() => setOpen(false)} />
           <div className="v2-menu__panel">
-            <h2>{viewer.kind === 'device' ? viewer.label ?? 'TV' : 'TV 화면'}<button type="button" className="v2-menu__close" onClick={() => setOpen(false)} aria-label="닫기"><Icon name="close" /></button></h2>
+            <h2>{viewer.kind === 'device' ? viewer.label ?? 'TV' : 'TV 화면'}<button ref={closeRef} type="button" className="v2-menu__close" onClick={() => setOpen(false)} aria-label="닫기"><Icon name="close" /></button></h2>
             <FullscreenButton className="v2-menu__item" />
             {viewer.kind === 'user'
               ? <button type="button" className="v2-menu__item" onClick={() => navigate('/')}><Icon name="home" />앱으로 돌아가기</button>

@@ -146,5 +146,9 @@ export function weatherPhrase(condition: string | null | undefined, temp: number
   const feel = temp == null ? '' : temp <= 0 ? '추워요' : temp <= 8 ? '쌀쌀해요' : temp <= 17 ? '선선해요' : temp <= 26 ? '따뜻해요' : '더워요';
   const head = condition === '맑음' ? '맑고' : condition === '구름 많음' ? '구름 많고' : condition === '흐림' ? '흐리고' : condition;
   if (!feel) return condition;
-  return /(비|눈|소나기|진눈깨비|눈날림|이슬비)/.test(condition) ? `${condition}, ${feel}` : `${head} ${feel}`;
+  if (/(비|눈|소나기|진눈깨비|눈날림|이슬비)/.test(condition)) {
+    const last = condition.charCodeAt(condition.length - 1) - 0xac00;
+    return `${condition}${last >= 0 && last % 28 ? '이' : '가'} 오고 ${feel}`;
+  }
+  return `${head} ${feel}`;
 }

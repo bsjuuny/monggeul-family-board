@@ -454,6 +454,26 @@ class NoticeTests(V2Server):
         self.assertEqual(st, 400)
 
 
+class BackupV2Tests(V2Server):
+    def test_backup_includes_v2_tables_and_restore_rolls_them_back(self):
+        self.put_doc(FAMILY_DOC)
+        self.setting("notices", {"storeOriginal": True})
+        _, res, _ = self.owner.request("POST", "/api/notices", notice_body("백업 전 공지", "2026-11-20", digest("백업 전")))
+        st, bk, _ = self.owner.request("GET", "/api/backup")
+        self.assertEqual(st, 200)
+        self.assertEqual(len(bk["v2"]["notices"]), 1)
+        self.assertIsNone(bk["v2"]["notices"][0]["original_text"])  # 원문은 백업 파일에 넣지 않는다
+        self.owner.request("POST", "/api/notices", notice_body("백업 후 공지", "2026-11-20", digest("백업 후")))
+        st, r, _ = self.owner.request("POST", "/api/restore", bk)
+        self.assertEqual(st, 200, r)
+        self.assertTrue(r["v2Restored"])
+        _, lst, _ = self.owner.request("GET", "/api/notices")
+        self.assertEqual([n["title"] for n in lst["notices"]], ["백업 전"])
+        bad = {**bk, "v2": {"notices": "x"}}
+        st, _, _ = self.owner.request("POST", "/api/restore", bad)
+        self.assertEqual(st, 400)
+
+
 # ───────────────────────── 등하원·픽업·보드 ─────────────────────────
 class CommuteBoardTests(V2Server):
     def setUp(self):
@@ -573,6 +593,26 @@ class WeatherServiceTests(V2Server):
             calls = len(self.fetch_calls)
             self.owner.request("GET", "/api/weather")
             self.assertEqual(len(self.fetch_calls), calls)  # 실패 뒤 5분은 다시 부르지 않는다
+
+
+class WeatherMergeTests(unittest.TestCase):
+    def test_new_forecast_keeps_earlier_hours_of_today(self):
+        """08:10 발표(다음 시각부터)로 바뀌어도 08시 등원 예보는 이전 발표 값으로 남는다."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            db = Path(tmp) / "w.sqlite3"
+            app.init_db(db)
+            clock = {"now": datetime(2026, 11, 20, 7, 30, tzinfo=KST)}
+            svc = weather.WeatherService(Path(tmp), lambda key: fake_kma, clock=lambda: clock["now"])
+            with mock.patch.dict("os.environ", {"MGFB_KMA_KEY": "k"}):
+                conn = app.connect(db)
+                svc.refresh(conn, 60, 127)  # 05시 발표: 06시부터
+                clock["now"] = datetime(2026, 11, 20, 8, 20, tzinfo=KST)
+                svc.refresh(conn, 60, 127)  # 08시 발표: 09시부터
+                snap = svc.snapshot(conn, {"name": "x", "lat": 37.5665, "lon": 126.978}, "2026-11-20", "08:30", "16:30", "08:30")
+                conn.close()
+            self.assertIsNotNone(snap["dropoff"])
+            self.assertEqual(snap["dropoff"]["time"], "08:30")
+            self.assertIsNotNone(snap["pickup"])
 
 
 # ───────────────────────── 공지 자동 수집 ─────────────────────────

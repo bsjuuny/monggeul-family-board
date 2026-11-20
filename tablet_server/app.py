@@ -53,6 +53,8 @@ SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60  # 쓰는 동안 세션을 연장해
 BACKUP_FORMAT = "monggeul-family-board-backup"
 BACKUP_SCHEMA_VERSION = 1
 KEEP_AUTO_BACKUPS = 20
+# JSON 백업에 함께 넣는 v2 표(공지 원문·이력·기기·캐시는 넣지 않는다)
+V2_BACKUP_TABLES = ("settings", "notices", "prep_items", "commute_exceptions", "notice_events", "pickups")
 LOGIN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
 MIN_PASSWORD_LEN = 8
 MAX_PASSWORD_LEN = 128
@@ -876,7 +878,10 @@ class Handler(BaseHTTPRequestHandler):
             "schemaVersion": BACKUP_SCHEMA_VERSION,
             "exportedAt": stamp,
             "data": json.loads(row["data"]),
+            "v2": {t: [dict(r) for r in conn.execute(f'SELECT * FROM "{t}"')] for t in V2_BACKUP_TABLES},
         }
+        for r in doc["v2"]["notices"]:
+            r["original_text"] = None
         fname = "monggeul-backup-" + re.sub(r"[^0-9]", "", stamp)[:14] + ".json"
         self._send_json(200, doc, [("Content-Disposition", f'attachment; filename="{fname}"')])
 
@@ -890,6 +895,9 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(400, "VALIDATION_ERROR", "백업 파일 형식이 올바르지 않아요.")
         text = json.dumps(body["data"], ensure_ascii=False, separators=(",", ":"))
         stamp = now_iso()
+        v2 = body.get("v2")
+        if v2 is not None and (not isinstance(v2, dict) or any(not isinstance(v2.get(t, []), list) for t in V2_BACKUP_TABLES)):
+            raise ApiError(400, "VALIDATION_ERROR", "백업 파일의 v2 형식이 올바르지 않아요.")
         conn.execute("BEGIN IMMEDIATE")
         try:
             cur = conn.execute("SELECT version, data FROM family_doc WHERE id = 1").fetchone()
@@ -906,12 +914,21 @@ class Handler(BaseHTTPRequestHandler):
                 "UPDATE family_doc SET version = ?, data = ?, updated_at = ?, updated_by = ? WHERE id = 1",
                 (version, text, stamp, u["login_id"]),
             )
+            if isinstance(v2, dict):  # v2 표도 백업 시점으로 되돌린다(같은 트랜잭션)
+                for t in V2_BACKUP_TABLES:
+                    cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{t}")')]
+                    conn.execute(f'DELETE FROM "{t}"')
+                    for row in v2.get(t, []):
+                        if not isinstance(row, dict):
+                            raise ApiError(400, "VALIDATION_ERROR", "백업 파일의 v2 행 형식이 올바르지 않아요.")
+                        keys = [k for k in row if k in cols]
+                        conn.execute(f'INSERT INTO "{t}"({",".join(keys)}) VALUES({",".join("?" * len(keys))})', [row[k] for k in keys])
             audit(conn, u["login_id"], "restore", f"v{cur['version']}->v{version}")
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
             raise
-        self._send_json(200, {"version": version, "updatedAt": stamp})
+        self._send_json(200, {"version": version, "updatedAt": stamp, "v2Restored": isinstance(v2, dict)})
 
     # ───── 정적 파일 ─────
     def _static(self, raw_path: str, head: bool) -> None:
