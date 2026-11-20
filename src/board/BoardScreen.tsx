@@ -416,7 +416,7 @@ export function BoardScreen({ board, now, variant, online, menu, onTogglePrep, o
           <section className="v2-greet" aria-label="인사와 시계">
             <p className="v2-greet__hello">{greeting(period, names)}</p>
             <Clock now={now} />
-            <h1 className="v2-greet__date">{dateKo(board.today)}</h1>
+            <h1 className="v2-greet__date">{dateKo(board.calendarToday ?? board.today)}</h1>
             <PeriodSwitch period={period} onChange={setPeriod} />
           </section>
           <div className="v2-scene" style={{ backgroundImage: `url(${art(scene, wide)})` }} role="img" aria-label={`${PERIOD_LABEL[period]} 창밖 풍경`}>

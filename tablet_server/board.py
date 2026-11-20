@@ -14,6 +14,16 @@ import display
 import kidsnote
 
 
+def board_day(screen: Dict[str, str], now: datetime) -> str:
+    """보드의 '오늘'. 날짜는 자정이 아니라 아침 시작 시각에 넘어간다.
+
+    새벽 1시는 아직 전날 밤이라, 저녁 화면의 '내일'이 곧 다가올 아침(달력상 오늘)이어야 한다.
+    """
+    kst = now.astimezone(bs.KST)
+    day = kst.date().isoformat()
+    return bs.add_days(day, -1) if kst.strftime("%H:%M") < screen["morningFrom"] else day
+
+
 def screen_mode(screen: Dict[str, str], now: datetime) -> str:
     hm = now.astimezone(bs.KST).strftime("%H:%M")
     if screen["morningFrom"] <= hm < screen["afternoonFrom"]:
@@ -39,11 +49,12 @@ def _notice_card(n: Dict[str, Any]) -> Dict[str, Any]:
 def build(conn: sqlite3.Connection, weather: Any, adapter: Any, viewer: Dict[str, Any],
           now: Optional[datetime] = None) -> Dict[str, Any]:
     now = now or datetime.now(timezone.utc)
-    today = bs.today_kst(now)
+    settings = bs.get_settings(conn)
+    calendar_today = bs.today_kst(now)
+    today = board_day(settings["screen"], now)
     tomorrow = bs.add_days(today, 1)
     doc = _family_doc(conn)
     fam = display.family_of(doc)
-    settings = bs.get_settings(conn)
     kids = display.children_of(doc)
     habits = display.habits_today(doc, today)
     exceptions = bs.list_exceptions(conn, today, tomorrow)
@@ -85,7 +96,7 @@ def build(conn: sqlite3.Connection, weather: Any, adapter: Any, viewer: Dict[str
     st = kidsnote.get_state(conn)
     cfg = settings["kidsnote"]
     out = {
-        "serverTime": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "today": today, "tomorrow": tomorrow,
+        "serverTime": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "today": today, "tomorrow": tomorrow, "calendarToday": calendar_today,
         "family": fam, "viewer": viewer,
         "screen": {**settings["screen"], "mode": screen_mode(settings["screen"], now)},
         "children": [{**c, "habits": habits.get(c["id"], {"done": 0, "total": 0, "pending": 0})} for c in kids],

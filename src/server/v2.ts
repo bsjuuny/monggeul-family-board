@@ -107,6 +107,8 @@ export interface Board {
   serverTime: string;
   today: string;
   tomorrow: string;
+  /** 달력상 오늘(머리글 날짜용). today 는 아침 시작 시각에 넘어가는 보드 기준 날짜 */
+  calendarToday?: string;
   family: { name: string; timezone: string };
   viewer: { kind: 'user' | 'device'; label: string | null; role: 'owner' | 'adult' | null };
   screen: { morningFrom: string; afternoonFrom: string; eveningFrom: string; mode: Period };

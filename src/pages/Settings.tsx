@@ -13,7 +13,7 @@ import { useMembers } from '../app/queries';
 import { useLogout } from '../app/Shell';
 import { ConfirmDialog } from '../ui/Confirm';
 import { PinDialog } from '../ui/PinDialog';
-import { AVATAR_OPTIONS, avatarNameOf, avatarOf, EmptyBlock, HABIT_ICONS, habitIconOf, OfflineReason, QueryView } from '../ui/States';
+import { AVATAR_OPTIONS, avatarNameOf, avatarOf, EmptyBlock, HABIT_ICON_LABELS, HABIT_ICONS, habitIconOf, OfflineReason, QueryView } from '../ui/States';
 import { useToast } from '../ui/Toasts';
 import { enterFullscreen, fullscreenSupported, setKeepFullscreen, useIsFullscreen, useKeepFullscreen } from '../ui/Fullscreen';
 
@@ -348,7 +348,7 @@ export function SettingsPage() {
               <select id="set-habit-icon" value={habitIcon} onChange={(e) => setHabitIcon(e.target.value)}>
                 {Object.entries(HABIT_ICONS).map(([k, v]) => (
                   <option key={k} value={k}>
-                    {v} {k}
+                    {v} {HABIT_ICON_LABELS[k] ?? k}
                   </option>
                 ))}
               </select>

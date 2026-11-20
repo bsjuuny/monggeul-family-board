@@ -125,7 +125,9 @@ export function FullscreenButton({ className = 'btn secondary small' }: { classN
         }
       }}
     >
-      <span aria-hidden="true">{isFs ? '🗗' : '⛶'}</span> {isFs ? '창 모드' : '전체 화면'}
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        {isFs ? <path d="M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4" /> : <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" />}
+      </svg> {isFs ? '창 모드' : '전체 화면'}
     </button>
   );
 }
