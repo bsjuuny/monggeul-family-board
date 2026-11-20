@@ -369,3 +369,8 @@ a.v2-notice:hover { background: var(--v2-accent-soft); }
   .v2-weather .v2-chip { padding-inline: 10px; white-space: nowrap; }
   .v2-weather .v2-mini dd { font-size: 16px; }
 }
+
+/* 등원 없는 날: 다음 등원 */
+.v2-commute__next { display: flex; flex-direction: column; gap: 2px; margin-top: 12px; padding: 10px 16px; border-radius: var(--v2-radius-inner); background: var(--v2-cream-100); }
+.v2-commute__next span { font-size: var(--v2-type-support); color: var(--v2-ink-muted); font-weight: 700; }
+.v2-commute__next b { font: 400 var(--v2-type-card-title) / 1.2 var(--v2-font-round); font-variant-numeric: tabular-nums; }

@@ -167,7 +167,8 @@ function BigValue({ value }: { value: string }) {
 
 function CommuteCard({ board, period, now, interactive, onPickupDone }: { board: Board; period: Period; now: Date; interactive: boolean; onPickupDone?: () => void }) {
   const pick = board.pickups[0];
-  const view = commuteView(period, now, board.commute.today, board.commute.tomorrow, Boolean(pick?.doneAt), pick?.assignee ?? null);
+  const view = commuteView(period, now, board.commute.today, board.commute.tomorrow, Boolean(pick?.doneAt), pick?.assignee ?? null,
+    { afterToday: board.commute.nextAfterToday, afterTomorrow: board.commute.nextAfterTomorrow, base: board.today });
   const multi = board.children.length > 1;
   return (
     <section className="v2-card v2-commute" aria-labelledby="v2-commute-title">
@@ -179,7 +180,8 @@ function CommuteCard({ board, period, now, interactive, onPickupDone }: { board:
             {interactive && <Link className="v2-btn" to="/settings#set-commute">시간 정하기</Link>}</div>
         )}
         {view.kind === 'off' && (
-          <div className="v2-empty"><strong>{view.title}</strong>{view.note && <span>{view.note}</span>}{view.needsReview && <Badge tone="warning" icon="alert">확인 필요</Badge>}</div>
+          <div className="v2-empty v2-commute__off"><strong>{view.title}</strong>{view.note && <span>{view.note}</span>}{view.needsReview && <Badge tone="warning" icon="alert">확인 필요</Badge>}
+            {view.next && <p className="v2-commute__next" data-testid="next-commute"><span>다음 등원</span><b>{view.next.when} {view.next.time}</b></p>}</div>
         )}
         {(view.kind === 'countdown' || view.kind === 'clock') && (
           <>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { callName, commuteView, greeting, periodAt, periodEndsAt, remainKo, weatherPhrase } from '../src/board/format';
+import { callName, commuteView, greeting, nextDayLabel, periodAt, periodEndsAt, remainKo, weatherPhrase } from '../src/board/format';
 import type { CommutePlan } from '../src/server/v2';
 
 const plan = (date: string, p: Partial<CommutePlan> = {}): CommutePlan => ({
@@ -51,5 +51,24 @@ describe('보드 표시 규칙', () => {
     expect(weatherPhrase('비', 4)).toBe('비가 오고 쌀쌀해요');
     expect(weatherPhrase('눈', -2)).toBe('눈이 오고 추워요');
     expect(weatherPhrase(null, 3)).toBe('날씨 정보 없음');
+  });
+});
+
+describe('등원 없는 날의 다음 등원', () => {
+  it('날짜를 내일·모레·요일·날짜로 부른다', () => {
+    expect(nextDayLabel('2026-11-22', '2026-11-21')).toBe('내일');
+    expect(nextDayLabel('2026-11-23', '2026-11-21')).toBe('모레(월요일)');
+    expect(nextDayLabel('2026-11-25', '2026-11-21')).toBe('수요일');
+    expect(nextDayLabel('2026-12-01', '2026-11-21')).toBe('12월 1일 화요일');
+  });
+  it('오늘 쉬면 오늘 다음, 저녁에는 내일 다음 등원을 보여 준다', () => {
+    const sat = [plan('2026-11-21', { attends: false })];
+    const sun = [plan('2026-11-22', { attends: false })];
+    const mon = { date: '2026-11-23', leaveHomeAt: '08:30', arriveBy: '09:00', needsReview: false };
+    const morning = commuteView('morning', at('09:00', '2026-11-21'), sat, sun, false, null, { afterToday: mon, afterTomorrow: mon, base: '2026-11-21' });
+    expect(morning).toMatchObject({ kind: 'off', title: '오늘은 등원하지 않아요', next: { when: '모레(월요일)', time: '08:30' } });
+    const evening = commuteView('evening', at('20:00', '2026-11-21'), sat, sun, false, null, { afterToday: mon, afterTomorrow: mon, base: '2026-11-21' });
+    expect(evening).toMatchObject({ kind: 'off', title: '내일은 등원하지 않아요', next: { when: '모레(월요일)' } });
+    expect(commuteView('morning', at('09:00', '2026-11-21'), sat, sun, false, null)).toMatchObject({ kind: 'off', next: null });
   });
 });

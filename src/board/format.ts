@@ -1,5 +1,5 @@
 // 보드 표시용 순수 함수 (테스트: tests/board.test.ts)
-import type { CommutePlan, Period } from '../server/v2';
+import type { CommutePlan, NextCommute, Period } from '../server/v2';
 
 const KST_OFFSET = 9 * 3600 * 1000;
 
@@ -85,7 +85,7 @@ export function greeting(period: Period, names: string[]): string {
 
 export type CommuteView =
   | { kind: 'empty' }
-  | { kind: 'off'; title: string; note: string | null; needsReview: boolean }
+  | { kind: 'off'; title: string; note: string | null; needsReview: boolean; next: { when: string; time: string } | null }
   | { kind: 'countdown'; label: string; value: string; pill: string; sub: string | null; needsReview: boolean; changeNote: string | null }
   | { kind: 'clock'; label: string; value: string; pill: string | null; sub: string | null; needsReview: boolean; changeNote: string | null }
   | { kind: 'done'; title: string; sub: string | null; tone: 'success' | 'warning' };
@@ -101,15 +101,29 @@ function changeNote(p: CommutePlan, kind: 'dropoff_time' | 'pickup_time'): strin
 }
 
 /** 시간대·현재 시각에 맞는 등하원 카드 내용을 고른다 */
+const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토'];
+
+/** 다음 등원 날을 '내일'·'모레'·'월요일'·'12월 1일 월요일'로. base 는 보드 기준 오늘 */
+export function nextDayLabel(date: string, base: string): string {
+  const diff = Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${base}T00:00:00Z`)) / 86_400_000);
+  const wd = `${WEEKDAY_KO[new Date(`${date}T00:00:00Z`).getUTCDay()]}요일`;
+  if (diff === 1) return '내일';
+  if (diff === 2) return `모레(${wd})`;
+  if (diff <= 6) return wd;
+  return `${Number(date.slice(5, 7))}월 ${Number(date.slice(8))}일 ${wd}`;
+}
+
 export function commuteView(period: Period, now: Date, today: CommutePlan[], tomorrow: CommutePlan[],
-  pickupDone: boolean, assignee: string | null): CommuteView {
+  pickupDone: boolean, assignee: string | null,
+  next: { afterToday?: NextCommute | null; afterTomorrow?: NextCommute | null; base?: string } = {}): CommuteView {
+  const nextOf = (n: NextCommute | null | undefined) => (n && next.base ? { when: nextDayLabel(n.date, next.base), time: n.leaveHomeAt } : null);
   if (!today.length && !tomorrow.length) return { kind: 'empty' };
   const nowMs = now.getTime();
   if (period === 'evening') {
     const p = earliest(tomorrow, 'leaveHomeAt');
     if (!p) {
       const off = tomorrow[0];
-      return { kind: 'off', title: off?.closed ? '내일은 쉬는 날이에요' : '내일은 등원하지 않아요', note: off?.closedNote ?? null, needsReview: Boolean(off?.needsReview) };
+      return { kind: 'off', title: off?.closed ? '내일은 쉬는 날이에요' : '내일은 등원하지 않아요', note: off?.closedNote ?? null, needsReview: Boolean(off?.needsReview), next: nextOf(next.afterTomorrow) };
     }
     const remain = remainKo(kstToMs(p.date, p.leaveHomeAt) - nowMs);
     return { kind: 'clock', label: '내일 등원', value: p.leaveHomeAt, pill: `${p.arriveBy}까지 도착`, sub: [remain ? `출발까지 ${remain}` : null, `내일 하원 ${p.pickupAt}${p.pickupAssignee ? ` · ${p.pickupAssignee}` : ''}`].filter(Boolean).join(' · '), needsReview: p.needsReview, changeNote: changeNote(p, 'dropoff_time') };
@@ -117,7 +131,7 @@ export function commuteView(period: Period, now: Date, today: CommutePlan[], tom
   const drop = earliest(today, 'leaveHomeAt');
   if (!drop) {
     const off = today[0];
-    return { kind: 'off', title: off?.closed ? '오늘은 쉬는 날이에요' : '오늘은 등원하지 않아요', note: off?.closedNote ?? null, needsReview: Boolean(off?.needsReview) };
+    return { kind: 'off', title: off?.closed ? '오늘은 쉬는 날이에요' : '오늘은 등원하지 않아요', note: off?.closedNote ?? null, needsReview: Boolean(off?.needsReview), next: nextOf(next.afterToday) };
   }
   const pick = earliest(today, 'pickupAt') as CommutePlan;
   const leaveMs = kstToMs(drop.date, drop.leaveHomeAt);

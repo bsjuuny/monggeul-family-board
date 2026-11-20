@@ -703,6 +703,24 @@ class CommuteBoardTests(V2Server):
         self.assertEqual((by["2026-11-19"]["leaveHomeAt"], by["2026-11-19"]["arriveBy"]), ("09:00", "09:30"))
         self.assertEqual((by["2026-11-20"]["attends"], by["2026-11-20"]["closedNote"]), (False, "개원기념일"))
 
+    def test_next_commute_skips_weekend_and_closed_days(self):
+        import board
+        self.owner.request("POST", "/api/commute/exceptions", {"kind": "closed", "date": "2026-11-23", "note": "개원기념일"})
+        conn = app.connect(self.db)
+        try:
+            settings = bs.get_settings(conn)
+            kids = [{"id": "c1"}]
+            # 토요일 기준: 일요일은 쉬고, 월요일은 휴원 → 다음 등원은 화요일
+            after_today, after_tomorrow = board._next_commutes(conn, settings, kids, "2026-11-21")
+            self.assertEqual((after_today["date"], after_today["leaveHomeAt"]), ("2026-11-24", "08:30"))
+            self.assertEqual(after_tomorrow["date"], "2026-11-24")
+            # 목요일 기준: 오늘 다음 = 금요일, 내일(금) 다음 = 화요일
+            after_today, after_tomorrow = board._next_commutes(conn, settings, kids, "2026-11-19")
+            self.assertEqual((after_today["date"], after_tomorrow["date"]), ("2026-11-20", "2026-11-24"))
+            self.assertEqual(board._next_commutes(conn, settings, [], "2026-11-19"), (None, None))
+        finally:
+            conn.close()
+
     def test_pickups_default_manual_done(self):
         _, p, _ = self.owner.request("GET", "/api/pickups?from=2026-11-18&to=2026-11-18")
         self.assertEqual((p["pickups"][0]["assignee"], p["pickups"][0]["assigneeSource"]), ("할머니", "default"))
