@@ -962,3 +962,15 @@ class MockSyncTests(V2Server):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BoardDayTests(unittest.TestCase):
+    def test_board_day_rolls_over_at_morning_start(self):
+        import board
+        from datetime import datetime, timezone
+        screen = {"morningFrom": "06:00", "afternoonFrom": "11:30", "eveningFrom": "18:00"}
+        # 11-23(월) 01:00 KST = 11-22 16:00Z → 아직 일요일 밤, 저녁 화면의 '내일'은 월요일
+        self.assertEqual(board.board_day(screen, datetime(2026, 11, 22, 16, 0, tzinfo=timezone.utc)), "2026-11-22")
+        # 06:00 KST 부터는 월요일
+        self.assertEqual(board.board_day(screen, datetime(2026, 11, 22, 21, 0, tzinfo=timezone.utc)), "2026-11-23")
+        self.assertEqual(board.board_day(screen, datetime(2026, 11, 23, 14, 59, tzinfo=timezone.utc)), "2026-11-23")

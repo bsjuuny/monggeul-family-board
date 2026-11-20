@@ -107,7 +107,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .field > label, .field > .label, legend { font-size: 15px; font-weight: 800; }
 .field .hint, .hint { color: var(--color-text-muted); font-size: 14px; }
 .field .err, .err { color: var(--bad); font-size: 14px; font-weight: 700; }
-input[type='text'], input[type='email'], input[type='password'], input[type='number'], input[type='date'], input[type='time'], input[type='datetime-local'], input[inputmode], select, textarea {
+input[type='text'], input[type='email'], input[type='password'], input[type='number'], input[type='date'], input[type='time'], input[type='datetime-local'], input[inputmode], input:not([type]), select, textarea {
   width: 100%; min-width: 0; min-height: var(--touch); padding: 9px 12px;
   border: 2px solid var(--color-line); border-radius: 12px;
   background: var(--color-surface); color: var(--color-ink); font: inherit;
