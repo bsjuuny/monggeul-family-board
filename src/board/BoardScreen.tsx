@@ -215,6 +215,7 @@ function WeatherCard({ board, period, interactive }: { board: Board; period: Per
   const evening = period === 'evening';
   return (
     <section className="v2-card v2-weather" aria-labelledby="v2-weather-title">
+      <div className="v2-deco v2-deco--weather" aria-hidden="true" style={{ backgroundImage: `url(${art('card-weather', true)})` }} />
       <div className="v2-card__head">
         <h2 id="v2-weather-title" className="v2-card__title"><Icon name="cloudSun" />{evening ? '내일 날씨' : '오늘 날씨'}</h2>
         {w.configured && w.available && (w.stale
@@ -293,6 +294,7 @@ function NoticeCard({ board, interactive }: { board: Board; interactive: boolean
   const unread = board.notices.needsReview;
   return (
     <section className="v2-card v2-notices" aria-labelledby="v2-notice-title">
+      <div className="v2-deco v2-deco--corner" aria-hidden="true" style={{ backgroundImage: `url(${art('card-notice', true)})` }} />
       <div className="v2-card__head">
         <h2 id="v2-notice-title" className="v2-card__title"><Icon name="bell" />공지톡 소식</h2>
         {unread > 0 && <span className="v2-count">확인할 소식 {unread}건</span>}
@@ -334,6 +336,7 @@ function PrepCard({ board, period, interactive, onToggle }: { board: Board; peri
   const events = tomorrow ? board.events.tomorrow : board.events.today;
   return (
     <section className="v2-card v2-prep" aria-labelledby="v2-prep-title">
+      <div className="v2-deco v2-deco--corner" aria-hidden="true" style={{ backgroundImage: `url(${art('card-prep', true)})` }} />
       <div className="v2-card__head">
         <h2 id="v2-prep-title" className="v2-card__title"><Icon name="bag" />{tomorrow ? '내일 준비물' : period === 'afternoon' ? '하원 준비·내일 준비물' : '오늘 준비물'}</h2>
         {tomorrow && period === 'morning' && <span className="v2-muted">오늘은 없어요</span>}
@@ -357,7 +360,7 @@ function PrepCard({ board, period, interactive, onToggle }: { board: Board; peri
         </ul>
       )}
       {events.length > 0 && (
-        <p className="v2-prep__events"><Icon name="calendar" size={20} /><span className="v2-ellipsis">{events.slice(0, 2).map((e) => `${e.time ?? (e.startsAt ? kstHm(new Date(e.startsAt)) : '')} ${e.title}`.trim()).join(' · ')}{events.length > 2 ? ` 외 ${events.length - 2}` : ''}</span></p>
+        <p className="v2-prep__events"><Icon name="calendar" size={20} /><span className="v2-ellipsis">{events.slice(0, 2).map((e) => { const t = e.time ?? (e.startsAt ? kstHm(new Date(e.startsAt)) : ''); return `${t && !e.title.includes(t) ? `${t} ` : ''}${e.title}`; }).join(' · ')}{events.length > 2 ? ` 외 ${events.length - 2}` : ''}</span></p>
       )}
     </section>
   );

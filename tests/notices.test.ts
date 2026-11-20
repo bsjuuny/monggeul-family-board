@@ -114,6 +114,16 @@ describe('공지 요약(NoticeDigest)', () => {
     const b = buildDigest('12월 24일~26일은 겨울 방학으로 휴원합니다.', '2026-11-20').digest;
     expect(b.closure).toMatchObject({ date: '2026-12-24', endDate: '2026-12-26' });
   });
+  it('보드용 짧은 제목', () => {
+    const t = (x: string, r = '2026-11-20') => buildDigest(x, r).digest.title;
+    expect(t('11월 24일(화)은 교사 연수로 오후 1시에 조기 하원합니다.')).toBe('조기 하원 13:00');
+    expect(t('사진 촬영 동의서를 다음 주 월요일까지 제출해 주세요.')).toBe('사진 촬영 동의서 제출');
+    expect(t('이번 주 금요일(11월 20일)에 학부모 참관 수업이 있습니다.', '2026-11-18')).toBe('학부모 참관 수업');
+    expect(t('다음 주 월요일부터 수영 수업이 시작됩니다. 수영복을 챙겨 보내주세요.')).toBe('수영 수업');
+    expect(t('내일 숲 체험이 있습니다. 이날은 오후 1시에 조기 하원합니다.')).toBe('숲 체험 · 조기 하원 13:00');
+    expect(t('12월 24일~26일은 겨울 방학으로 휴원합니다.')).toBe('휴원 12/24~12/26');
+    expect(t('원활한 활동을 위해 내일 오전 9시 50분까지 등원해 주세요.')).toBe('09:50까지 등원');
+  });
   it('서류 제출 기한', () => {
     const { digest } = buildDigest('사진 촬영 동의서를 11월 25일까지 제출해 주세요.', '2026-11-20');
     expect(digest.documents[0]).toMatchObject({ date: '2026-11-25' });

@@ -337,3 +337,11 @@ a.v2-notice:hover { background: var(--v2-accent-soft); }
 @media (max-height: 860px) and (min-width: 601px) {
   .v2-board__inner.has-banner .v2-notice__title { -webkit-line-clamp: 1; }
 }
+
+/* 카드 장식 그림(Codex, 2026-11-20): 글자 아래에 은은하게 */
+.v2-deco { position: absolute; z-index: 0; pointer-events: none; background-repeat: no-repeat; }
+.v2-deco--weather { left: 0; right: 0; bottom: calc(var(--v2-pad) + 64px); height: 30%; background-position: center bottom; background-size: 100% auto; opacity: 0.75; }
+.v2-deco--corner { right: 6px; bottom: 6px; width: 28%; max-width: 260px; aspect-ratio: 236 / 153; background-position: right bottom; background-size: contain; opacity: 0.8; }
+.v2-weather > :not(.v2-deco), .v2-notices > :not(.v2-deco), .v2-prep > :not(.v2-deco) { position: relative; z-index: 1; }
+.v2-board .v2-mini > div { background: rgba(255, 248, 234, 0.9); }
+@media (max-width: 600px) { .v2-deco--corner { width: 30%; opacity: 0.6; } }

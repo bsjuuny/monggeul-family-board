@@ -30,3 +30,11 @@
 .weekday-grid { display: grid; gap: 6px; margin-top: 8px; }
 .list.small { font-size: 14px; }
 .btn.danger { background: #a53f49; color: #fff; }
+
+/* 공지 목록: 목록 칸과 공지 칸이 두 겹으로 보이지 않게 */
+.list.notice-list > li { padding: 0; border: 0; background: none; min-height: 0; display: block; }
+.notice-row { width: 100%; background: var(--color-surface); border-color: var(--color-line); }
+.notice-row strong { font-family: 'Jua', 'Noto Sans KR', sans-serif; font-weight: 400; font-size: 19px; }
+.notice-row:hover, .notice-row:focus-visible { border-color: var(--color-violet); background: var(--color-bg-canvas); }
+.notice-status--auto { background: var(--color-aqua); color: #23584f; }
+.big-code { font-family: 'Jua', sans-serif; font-size: 44px; letter-spacing: .2em; }

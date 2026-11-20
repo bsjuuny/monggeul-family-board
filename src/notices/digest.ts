@@ -36,6 +36,34 @@ function pickDate(ms: DateMention[]): { date: string; endDate: string | null; ti
   return { date: chosen.date, endDate: chosen.endDate, time, confidence };
 }
 
+const EVENT_NOUN = /((?:[가-힣]{1,6}\s)?[가-힣]{0,6}?(?:현장\s?학습|체험|견학|소풍|나들이|발표회|재롱\s?잔치|공연|운동회|참관\s?수업|수업|특강|행사|축제|파티|생일\s?잔치|생일\s?축하|상담|검진|접종|캠프|산책\s?활동|산책|입학식|졸업식|박람회|교육))/;
+const DOC_NOUN = /((?:[가-힣]{1,6}\s){0,2}[가-힣]{0,6}?(?:동의서|신청서|확인서|회신서|설문지|설문|서류|투약의뢰서))/;
+const LEAD = /^(?:오늘|내일|모레|이번\s*주|다음\s*주|[월화수목금토일]요일|\d+\s*월\s*\d+\s*일|은|는|에|에는|의|과|와)\s*/;
+
+function cleanNoun(t: string): string {
+  let x = t.trim();
+  for (let i = 0; i < 4; i++) x = x.replace(LEAD, '').trim();
+  return x.replace(/(?:이|가|을|를|은|는)$/, '').trim();
+}
+
+/** 보드에서 멀리서 읽을 짧은 제목: "숲 체험 · 조기 하원 13:00", "사진 촬영 동의서 제출" */
+function boardTitle(text: string, eventSentence: string, pickup: Change | null, dropoff: Change | null, closure: Change | null, hasDocs: boolean, kinds: string[]): string | null {
+  const parts: string[] = [];
+  const ev = (eventSentence.match(EVENT_NOUN) ?? text.match(EVENT_NOUN))?.[1];
+  if (ev && !closure) parts.push(cleanNoun(ev));
+  if (closure) parts.push(closure.endDate ? `휴원 ${closure.date.slice(5).replace('-', '/')}~${closure.endDate.slice(5).replace('-', '/')}` : '휴원');
+  if (pickup) parts.push(pickup.early || /조기|일찍|단축/.test(pickup.text) ? `조기 하원 ${pickup.time ?? ''}`.trim() : `하원 ${pickup.time ?? ''} 변경`.replace('  ', ' '));
+  else if (dropoff) parts.push(`${dropoff.time ?? ''}까지 등원`.trim());
+  if (!parts.length && hasDocs) {
+    const d = text.match(DOC_NOUN)?.[1];
+    if (d) parts.push(`${cleanNoun(d)} 제출`);
+  }
+  if (!parts.length && kinds.includes('납부·결제')) parts.push('비용 납부');
+  const t = parts.filter((x) => x.length >= 2).join(' · ');
+  if (!t) return null;
+  return t.length > 24 ? `${t.slice(0, 23)}…` : t;
+}
+
 function shortTitle(sentence: string, fallback: string): string {
   let t = sentence.replace(GREETING, '').replace(/[.!?]$/, '').trim();
   t = t.replace(/^(?:오늘|내일|모레|이번\s*주\s*[월화수목금토일]요일|다음\s*주\s*[월화수목금토일]요일|\d{1,2}\s*월\s*\d{1,2}\s*일(?:\s*\([^)]*\))?)\s*(?:은|는|에|에는)?\s*/, '');
@@ -160,7 +188,7 @@ export function buildDigest(text: string, receivedOn: string): DigestResult {
 
   const digest: NoticeDigest = {
     schema: 1,
-    title: shortTitle(titleSource, fallbackTitle),
+    title: boardTitle(clean, eventSentence, pickupChange, dropoffChange, closure, documents.length > 0, a.noticeTypes) ?? shortTitle(titleSource, fallbackTitle),
     summary: a.summary,
     kinds: a.noticeTypes,
     eventDate: event?.date ?? null,
