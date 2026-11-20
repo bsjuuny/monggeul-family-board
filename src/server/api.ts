@@ -86,6 +86,12 @@ export class ServerApi {
     return { status: res.status, json, text };
   }
 
+  /** v2 API용 범용 요청(같은 오류 규칙). 응답 JSON 객체를 그대로 돌려준다. */
+  async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const { json } = await this.call(method, path, body);
+    return (json ?? {}) as T;
+  }
+
   async health(): Promise<ServerHealth> {
     const { json } = await this.call('GET', '/api/health');
     if (!json || json.status !== 'ok' || typeof json.schemaVersion !== 'number') {

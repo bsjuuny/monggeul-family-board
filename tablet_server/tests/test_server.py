@@ -120,7 +120,7 @@ class AuthTests(ServerTestCase):
         status, body = self.client().json("GET", "/api/health")
         self.assertEqual(status, 200)
         self.assertEqual(body["status"], "ok")
-        self.assertEqual(body["schemaVersion"], app.SCHEMA_VERSION)
+        self.assertEqual(body["schemaVersion"], app.migrations.LATEST_VERSION)
         self.assertEqual(set(body), {"status", "schemaVersion", "serverTime"})
 
     def test_lan_address_classification_rejects_public_sources(self):

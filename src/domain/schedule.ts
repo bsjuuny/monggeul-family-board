@@ -49,7 +49,7 @@ export function eventTimeOn(e: EventLike, date: string, tz: string): { time: str
   if (e.allDay || !e.startsAt) return { time: '종일', ampm: '' };
   const start = isoToZoned(e.startsAt, tz);
   if (start.date < date) return { time: '이어서', ampm: '' };
-  return { time: start.time, ampm: Number(start.time.slice(0, 2)) < 12 ? 'AM' : 'PM' };
+  return { time: start.time, ampm: Number(start.time.slice(0, 2)) < 12 ? '오전' : '오후' };
 }
 
 /** 미완료 우선 → 기한 빠른 순(기한 없음은 뒤) → 오래된 순 */

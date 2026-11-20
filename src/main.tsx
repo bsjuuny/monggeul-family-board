@@ -2,7 +2,12 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './app/App';
 import { createServices } from './app/services';
+import '@fontsource/jua/400.css';
+import '@fontsource/noto-sans-kr/400.css';
+import '@fontsource/noto-sans-kr/500.css';
+import '@fontsource/noto-sans-kr/700.css';
 import './styles.css';
+import { registerServiceWorker } from './app/swUpdate';
 
 const services = createServices();
 
@@ -15,8 +20,4 @@ createRoot(container).render(
 );
 
 // 서비스 워커는 배포(프로덕션) 빌드에서만 등록한다. 실패해도 앱 동작에는 영향이 없다.
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => undefined);
-  });
-}
+if (import.meta.env.PROD) window.addEventListener('load', registerServiceWorker);

@@ -165,7 +165,7 @@ export function HomePage() {
   return (
     <div className="home concept-seven-home">
       <header className="home-title-row">
-        <div><span className="eyebrow">{familyName.toUpperCase()} · FAMILY WEEK</span><h1><span>{formatKoreanDate(today)}</span> {weekdayKo(today)}요일의 흐름</h1></div>
+        <div><span className="eyebrow">{familyName} · 이번 주</span><h1><span>{formatKoreanDate(today)}</span> {weekdayKo(today)}요일의 흐름</h1></div>
         <p>{familyName} 가족의 오늘을 한눈에 봐요.</p>
       </header>
       <QueryView q={weekEvents} rows={2}>{(events) => <WeekRibbon today={today} events={events} tz={tz} />}</QueryView>

@@ -32,17 +32,29 @@ from datetime import datetime, timezone
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlsplit
 
-SCHEMA_VERSION = 1
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import board  # noqa: E402
+import board_store as bs  # noqa: E402
+import kidsnote  # noqa: E402
+import migrations  # noqa: E402
+from analyzer_bridge import NodeAnalyzer  # noqa: E402
+from weather import WeatherService, delete_key, key_source, latlon_to_grid, save_key  # noqa: E402
+
+SCHEMA_VERSION = 1  # 기본 테이블(v1) 버전. 이후 변경은 migrations.py 가 올린다.
 PBKDF2_ITERATIONS = 310_000
 SESSION_TTL_SECONDS = 12 * 60 * 60
 MAX_BODY_BYTES = 2 * 1024 * 1024
 COOKIE_NAME = "mgfb_session"
+DEVICE_COOKIE_NAME = "mgfb_device"
+SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60  # 쓰는 동안 세션을 연장해도 30일을 넘기지 않는다
 BACKUP_FORMAT = "monggeul-family-board-backup"
 BACKUP_SCHEMA_VERSION = 1
 KEEP_AUTO_BACKUPS = 20
+# JSON 백업에 함께 넣는 v2 표(공지 원문·이력·기기·캐시는 넣지 않는다)
+V2_BACKUP_TABLES = ("settings", "notices", "prep_items", "commute_exceptions", "notice_events", "pickups")
 LOGIN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
 MIN_PASSWORD_LEN = 8
 MAX_PASSWORD_LEN = 128
@@ -90,6 +102,10 @@ class Config:
     login_max_failures: int = 5
     login_ip_max_failures: int = 30
     login_window: int = 600
+    notice_source: Optional[str] = None  # 'mock:<파일>' 이면 모의 공지 수집(개발·QA 전용)
+    analyzer: Optional[Any] = None
+    allow_remote_key_entry: bool = False  # 테스트 전용: 루프백이 아닌 곳에서도 키 입력 허용
+    weather_fetcher: Optional[Callable[[str], Any]] = None
 
 
 class ApiError(Exception):
@@ -163,12 +179,14 @@ def connect(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def init_db(db_path: Path) -> None:
+def init_db(db_path: Path, log: Callable[[str], None] = lambda s: None) -> Optional[Path]:
+    """v1 기본 테이블을 만들고, 남은 마이그레이션을 적용한다(적용 전 DB 파일을 백업). 백업 경로를 돌려준다."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         os.chmod(db_path.parent, 0o700)
     except OSError:
         pass  # Windows 등
+    existed = db_path.exists() and db_path.stat().st_size > 0
     conn = connect(db_path)
     try:
         conn.executescript(SCHEMA_SQL)
@@ -179,6 +197,8 @@ def init_db(db_path: Path) -> None:
         )
     finally:
         conn.close()
+    # 새로 만든 빈 DB는 백업할 내용이 없다
+    return migrations.migrate(db_path, connect, log, backup=existed)
 
 
 def audit(conn: sqlite3.Connection, login_id: Optional[str], action: str, detail: str = "") -> None:
@@ -265,6 +285,14 @@ class RateLimiter:
 # ───────────────────────── HTTP ─────────────────────────
 
 
+def key_entry_allowed(client_ip: str, config: "Config") -> bool:
+    """기상청 키 입력은 태블릿 자신(루프백)에서 온 요청만 받는다(평문 HTTP로 Wi-Fi에 키가 오가지 않게)."""
+    try:
+        return ipaddress.ip_address(client_ip).is_loopback or config.allow_remote_key_entry
+    except ValueError:
+        return False
+
+
 def _is_lan_host(host: str) -> bool:
     if host in ("localhost",) or host.endswith(".local"):
         return True
@@ -289,6 +317,11 @@ class FamilyServer(ThreadingHTTPServer):
     def __init__(self, address: Tuple[str, int], config: Config):
         self.config = config
         self.limiter = RateLimiter(config.login_window, config.login_max_failures, config.login_ip_max_failures)
+        self.pair_limiter = RateLimiter(600, 10, 30)
+        data_dir = config.db_path.parent
+        self.weather = WeatherService(data_dir, config.weather_fetcher) if config.weather_fetcher else WeatherService(data_dir)
+        self.adapter = kidsnote.adapter_from_spec(config.notice_source)
+        self.analyzer = config.analyzer or NodeAnalyzer()
         super().__init__(address, Handler)
 
 
@@ -329,6 +362,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ───── 공통 ─────
     def _handle(self, method: str) -> None:
+        self._extra_headers: List[Tuple[str, str]] = []
         try:
             if not _is_lan_host(self.client_address[0]):
                 raise ApiError(403, "LAN_ONLY", "같은 Wi-Fi의 기기에서만 접속할 수 있어요.")
@@ -358,9 +392,10 @@ class Handler(BaseHTTPRequestHandler):
                 raise ApiError(400, "BAD_REQUEST", "Content-Length가 올바르지 않아요.", close=True)
             if n < 0:
                 raise ApiError(400, "BAD_REQUEST", "Content-Length가 올바르지 않아요.", close=True)
-            if n > self.server.config.max_body:
+            limit = self.server.config.max_body * (5 if urlsplit(self.path).path == "/api/restore" else 1)  # 백업 파일은 10MB까지
+            if n > limit:
                 # 클라이언트가 응답을 읽을 수 있도록 적당한 크기까지는 버리고 응답한다(저장하지 않음).
-                left = n if n <= 8 * self.server.config.max_body else 0
+                left = n if n <= 8 * limit else 0
                 while left > 0:
                     chunk = self.rfile.read(min(65536, left))
                     if not chunk:
@@ -403,7 +438,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
-        for k, v in headers or []:
+        for k, v in (headers or []) + getattr(self, "_extra_headers", []):
             self.send_header(k, v)
         if close:
             self.send_header("Connection", "close")
@@ -433,7 +468,11 @@ class Handler(BaseHTTPRequestHandler):
         extra = "" if max_age > 0 else "; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
         return ("Set-Cookie", f"{COOKIE_NAME}={token}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Strict{extra}")
 
-    def _token(self) -> Optional[str]:
+    def _device_cookie_header(self, token: str, max_age: int) -> Tuple[str, str]:
+        extra = "" if max_age > 0 else "; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
+        return ("Set-Cookie", f"{DEVICE_COOKIE_NAME}={token}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Strict{extra}")
+
+    def _token(self, name: str = COOKIE_NAME) -> Optional[str]:
         raw = self.headers.get("Cookie")
         if not raw:
             return None
@@ -442,21 +481,49 @@ class Handler(BaseHTTPRequestHandler):
             c.load(raw)
         except Exception:
             return None
-        m = c.get(COOKIE_NAME)
+        m = c.get(name)
         return m.value if m and m.value else None
 
-    def _auth(self, conn: sqlite3.Connection) -> sqlite3.Row:
+    def _auth(self, conn: sqlite3.Connection, clear_on_fail: bool = True) -> sqlite3.Row:
         token = self._token()
         if token:
             h = hashlib.sha256(token.encode("utf-8")).hexdigest()
+            now = int(time.time())
             row = conn.execute(
-                "SELECT u.id, u.login_id, u.role, s.token_hash FROM sessions s JOIN users u ON u.id = s.user_id "
+                "SELECT u.id, u.login_id, u.role, s.token_hash, s.created_at, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id "
                 "WHERE s.token_hash = ? AND s.expires_at > ?",
-                (h, int(time.time())),
+                (h, now),
             ).fetchone()
             if row:
+                ttl = self.server.config.session_ttl
+                # 쓰는 동안은 세션을 연장한다(남은 시간이 절반 아래일 때, 처음 로그인 뒤 30일까지)
+                if row["expires_at"] - now < ttl // 2 and now + ttl <= row["created_at"] + SESSION_MAX_AGE_SECONDS:
+                    conn.execute("UPDATE sessions SET expires_at = ? WHERE token_hash = ?", (now + ttl, h))
+                    self._extra_headers.append(self._cookie_header(token, ttl))
                 return row
-        raise ApiError(401, "UNAUTHENTICATED", "로그인이 필요해요.", headers=[self._cookie_header("", 0)] if token else None)
+        raise ApiError(401, "UNAUTHENTICATED", "로그인이 필요해요.",
+                       headers=[self._cookie_header("", 0)] if token and clear_on_fail else None)
+
+    def _principal(self, conn: sqlite3.Connection, allow_device: bool) -> Dict[str, Any]:
+        """성인 세션 또는 (허용된 API에서만) TV 기기 토큰."""
+        if self._token():
+            try:
+                u = self._auth(conn, clear_on_fail=not allow_device)
+                return {"kind": "user", "user": u, "actor": u["login_id"]}
+            except ApiError:
+                if not allow_device:
+                    raise
+        if allow_device:
+            dev_token = self._token(DEVICE_COOKIE_NAME)
+            dev = bs.device_for_token(conn, dev_token)
+            if dev is not None:
+                # 쓰는 동안 브라우저 쿠키 수명도 늘린다(서버 만료와 함께 연장)
+                self._extra_headers.append(self._device_cookie_header(dev_token, bs.DEVICE_COOKIE_MAX_AGE))
+                return {"kind": "device", "device": dev, "actor": f"device:{dev['id']}"}
+        raise ApiError(401, "UNAUTHENTICATED", "로그인이 필요해요.")
+
+    def _user(self, conn: sqlite3.Connection) -> Dict[str, Any]:
+        return self._principal(conn, allow_device=False)
 
     def _require_owner(self, user: sqlite3.Row) -> None:
         if user["role"] != "owner":
@@ -464,32 +531,306 @@ class Handler(BaseHTTPRequestHandler):
 
     # ───── API ─────
     def _api(self, method: str, path: str, query: Dict[str, List[str]]) -> None:
-        routes = {
-            "/api/health": {"GET": self._health},
-            "/api/login": {"POST": self._login},
-            "/api/logout": {"POST": self._logout},
-            "/api/me": {"GET": self._me},
-            "/api/state": {"GET": self._state_get, "PUT": self._state_put},
-            "/api/backup": {"GET": self._backup},
-            "/api/restore": {"POST": self._restore},
-        }
-        table = routes.get(path)
-        if table is None:
-            raise ApiError(404, "NOT_FOUND", "없는 API예요.")
         if method == "HEAD":
             method = "GET"
-        fn = table.get(method)
-        if fn is None:
-            raise ApiError(405, "METHOD_NOT_ALLOWED", "허용되지 않는 메서드예요.", headers=[("Allow", ", ".join(table))])
-        conn = connect(self.server.config.db_path)
-        try:
-            fn(conn, query)
-        finally:
-            conn.close()
+        allowed: List[str] = []
+        for m, pattern, name in ROUTES:
+            match = pattern.fullmatch(path)
+            if not match:
+                continue
+            if m != method:
+                allowed.append(m)
+                continue
+            conn = connect(self.server.config.db_path)
+            try:
+                try:
+                    getattr(self, name)(conn, query, *match.groups())
+                except bs.StoreError as e:
+                    raise ApiError(e.status, e.code, e.message, e.extra)
+            finally:
+                conn.close()
+            return
+        if allowed:
+            raise ApiError(405, "METHOD_NOT_ALLOWED", "허용되지 않는 메서드예요.", headers=[("Allow", ", ".join(sorted(set(allowed))))])
+        raise ApiError(404, "NOT_FOUND", "없는 API예요.")
+
+    @staticmethod
+    def _q(query: Dict[str, List[str]], name: str) -> Optional[str]:
+        v = query.get(name)
+        return v[0] if v else None
+
+    def _range(self, query: Dict[str, List[str]], default_days: int = 1) -> Tuple[str, str]:
+        start = self._q(query, "from") or bs.today_kst()
+        end = self._q(query, "to") or bs.add_days(start, default_days)
+        if not (bs.DATE_RE.match(start) and bs.DATE_RE.match(end)) or end < start or bs.add_days(start, 62) < end:
+            raise ApiError(400, "VALIDATION_ERROR", "기간(from·to, 최대 62일)을 확인해 주세요.")
+        return start, end
 
     def _health(self, conn: sqlite3.Connection, query: Dict[str, List[str]]) -> None:
         conn.execute("SELECT 1").fetchone()
-        self._send_json(200, {"status": "ok", "schemaVersion": SCHEMA_VERSION, "serverTime": now_iso()})
+        self._send_json(200, {"status": "ok", "schemaVersion": migrations.current_version(conn), "serverTime": now_iso()})
+
+    # ───── v2: 설정 ─────
+    def _settings_get(self, conn, query) -> None:
+        self._user(conn)
+        s = bs.get_settings(conn)
+        loc = s.get("location")
+        s["weatherKeyConfigured"] = self.server.weather.key_configured()
+        s["weatherKeySource"] = key_source(self.server.config.db_path.parent)
+        if loc:
+            s["location"] = {**loc, "grid": list(latlon_to_grid(loc["lat"], loc["lon"]))}
+        self._send_json(200, s)
+
+    def _settings_put(self, conn, query, key) -> None:
+        p = self._user(conn)
+        body = self._read_json()
+        if not isinstance(body, dict):
+            raise ApiError(400, "VALIDATION_ERROR", "value와 baseVersion이 필요해요.")
+        if key in ("kidsnote", "notices") and p["user"]["role"] != "owner":
+            raise ApiError(403, "FORBIDDEN", "공지·키즈노트 설정은 owner만 바꿀 수 있어요.")
+        res = bs.put_setting(conn, key, body.get("value"), body.get("baseVersion"), p["actor"])
+        audit(conn, p["actor"], "settings", key)
+        self._send_json(200, res)
+
+    def _weather_key_put(self, conn, query) -> None:
+        """owner 가 설정 화면에서 기상청 키를 넣는다. 먼저 시험 호출하고, 키가 틀리면 저장하지 않는다. 키는 응답·로그에 남기지 않는다."""
+        p = self._user(conn)
+        if p["user"]["role"] != "owner":
+            raise ApiError(403, "FORBIDDEN", "기상청 키는 owner만 넣을 수 있어요.")
+        if not key_entry_allowed(self.client_address[0], self.server.config):
+            raise ApiError(403, "LOCAL_ONLY", "키가 Wi-Fi로 오가지 않도록 태블릿에서 직접 http://127.0.0.1:8787 을 열어 넣어 주세요.")
+        if key_source(self.server.config.db_path.parent) == "env":
+            raise ApiError(409, "KEY_FROM_ENV", "지금은 서버 환경변수(MGFB_KMA_KEY)의 키를 쓰고 있어요. 환경변수를 지운 뒤 다시 넣어 주세요.")
+        body = self._read_json()
+        key = body.get("key") if isinstance(body, dict) else None
+        if not isinstance(key, str) or not key.strip() or len(key.strip()) > 400 or any(c.isspace() for c in key.strip()):
+            raise ApiError(400, "VALIDATION_ERROR", "공공데이터포털에서 받은 서비스 키(Decoding 키)를 그대로 붙여넣어 주세요.")
+        loc = bs.get_settings(conn)["location"]
+        nx, ny = latlon_to_grid(loc["lat"], loc["lon"]) if loc else (60, 127)
+        result, message = self.server.weather.test_key(key.strip(), nx, ny)
+        if result == "invalid":
+            audit(conn, p["actor"], "weather_key_rejected")
+            raise ApiError(400, "WEATHER_KEY_INVALID", f"{message} 키를 저장하지 않았어요.")
+        if result == "unreachable":  # 확인하지 못한 키로 기존 키를 덮어쓰지 않는다
+            audit(conn, p["actor"], "weather_key_unverified")
+            raise ApiError(503, "WEATHER_UNREACHABLE", f"지금 기상청에 연결할 수 없어 키를 확인하지 못했어요({message}). 태블릿 인터넷을 확인한 뒤 다시 시도해 주세요. 키는 저장하지 않았어요.")
+        save_key(self.server.config.db_path.parent, key.strip())
+        self.server.weather.reset_failures()
+        if loc:
+            self.server.weather.refresh(conn, nx, ny, force=True)
+        audit(conn, p["actor"], "weather_key_set", result)
+        self._send_json(200, {"saved": True, "check": result, "message": message})
+
+    def _weather_key_delete(self, conn, query) -> None:
+        p = self._user(conn)
+        if p["user"]["role"] != "owner":
+            raise ApiError(403, "FORBIDDEN", "기상청 키는 owner만 지울 수 있어요.")
+        removed = delete_key(self.server.config.db_path.parent)
+        audit(conn, p["actor"], "weather_key_deleted")
+        self._send_json(200, {"removed": removed})
+
+    # ───── v2: TV 기기 ─────
+    def _pairing_create(self, conn, query) -> None:
+        p = self._user(conn)
+        res = bs.create_pairing_code(conn, p["actor"])
+        audit(conn, p["actor"], "pairing_code")
+        self._send_json(200, res)
+
+    def _pair(self, conn, query) -> None:
+        ip = self.client_address[0]
+        wait = self.server.pair_limiter.retry_after(ip, "pair")
+        if wait > 0:
+            raise ApiError(429, "RATE_LIMITED", "시도가 너무 많아요. 잠시 뒤 다시 해 주세요.", {"retryAfterSec": wait},
+                           headers=[("Retry-After", str(wait))])
+        body = self._read_json()
+        if not isinstance(body, dict):
+            raise ApiError(400, "VALIDATION_ERROR", "코드를 보내 주세요.")
+        try:
+            token, dev = bs.exchange_pairing_code(conn, body.get("code"), body.get("label") or "")
+        except bs.StoreError:
+            self.server.pair_limiter.record_failure(ip, "pair")
+            raise
+        audit(conn, f"device:{dev['id']}", "device_paired", dev["label"])
+        self._send_json(200, dev, [self._device_cookie_header(token, bs.DEVICE_COOKIE_MAX_AGE)])
+
+    def _devices_list(self, conn, query) -> None:
+        self._user(conn)
+        self._send_json(200, {"devices": bs.list_devices(conn)})
+
+    def _device_revoke(self, conn, query, dev_id) -> None:
+        p = self._user(conn)
+        bs.revoke_device(conn, dev_id)
+        audit(conn, p["actor"], "device_revoked", dev_id)
+        self._send_json(200, {"ok": True})
+
+    def _device_me(self, conn, query) -> None:
+        dev = bs.device_for_token(conn, self._token(DEVICE_COOKIE_NAME))
+        if dev is None:
+            hs = [self._device_cookie_header("", 0)] if self._token(DEVICE_COOKIE_NAME) else None
+            raise ApiError(401, "UNAUTHENTICATED", "연결된 TV가 아니에요.", headers=hs)
+        from display import family_of
+        row = conn.execute("SELECT data FROM family_doc WHERE id = 1").fetchone()
+        doc = json.loads(row["data"]) if row else None
+        self._send_json(200, {"id": dev["id"], "label": dev["label"], "mode": dev["mode"],
+                              "familyName": family_of(doc if isinstance(doc, dict) else None)["name"]})
+
+    def _device_unpair(self, conn, query) -> None:
+        dev = bs.device_for_token(conn, self._token(DEVICE_COOKIE_NAME))
+        if dev is not None:
+            conn.execute("UPDATE devices SET revoked_at = ? WHERE id = ?", (now_iso(), dev["id"]))
+            audit(conn, f"device:{dev['id']}", "device_unpaired")
+        self._send_json(200, {"ok": True}, [self._device_cookie_header("", 0)])
+
+    # ───── v2: 보드·날씨 ─────
+    def _board(self, conn, query) -> None:
+        p = self._principal(conn, allow_device=True)
+        viewer = {"kind": p["kind"], "label": p["device"]["label"] if p["kind"] == "device" else None,
+                  "role": p["user"]["role"] if p["kind"] == "user" else None}
+        self._send_json(200, board.build(conn, self.server.weather, self.server.adapter, viewer))
+
+    def _weather(self, conn, query) -> None:
+        self._principal(conn, allow_device=True)
+        b = board.build(conn, self.server.weather, self.server.adapter, {"kind": "weather"})
+        self._send_json(200, b["weather"])
+
+    # ───── v2: 공지 ─────
+    def _notices_list(self, conn, query) -> None:
+        self._user(conn)
+        self._send_json(200, {"notices": bs.list_notices(conn, self._q(query, "status"))})
+
+    def _notices_create(self, conn, query) -> None:
+        p = self._user(conn)
+        res = bs.create_notice(conn, self._read_json(), p["actor"], allow_store_original=p["user"]["role"] == "owner")
+        self._send_json(200 if res["duplicate"] else 201, res)
+
+    def _notice_get(self, conn, query, nid) -> None:
+        self._user(conn)
+        self._send_json(200, bs.get_notice(conn, nid, include_original=self._q(query, "original") == "1"))
+
+    def _notice_put(self, conn, query, nid) -> None:
+        p = self._user(conn)
+        self._send_json(200, bs.update_notice(conn, nid, self._read_json(), p["actor"]))
+
+    def _notice_delete(self, conn, query, nid) -> None:
+        p = self._user(conn)
+        bs.delete_notice(conn, nid, p["actor"])
+        self._send_json(200, {"ok": True})
+
+    def _notice_confirm(self, conn, query, nid) -> None:
+        p = self._user(conn)
+        body = self._read_json()
+        if not isinstance(body, dict):
+            raise ApiError(400, "VALIDATION_ERROR", "baseVersion이 필요해요.")
+        self._send_json(200, bs.confirm_notice(conn, nid, body.get("baseVersion"), p["actor"], dismiss=body.get("dismiss") is True))
+
+    def _notice_history(self, conn, query, nid) -> None:
+        self._user(conn)
+        self._send_json(200, {"history": bs.notice_history(conn, nid)})
+
+    def _notice_analysis(self, conn, query, nid) -> None:
+        p = self._user(conn)
+        body = self._read_json()
+        self._send_json(200, kidsnote.save_analysis(conn, nid, body.get("digest") if isinstance(body, dict) else None, p["actor"]))
+
+    def _notices_pending(self, conn, query) -> None:
+        self._user(conn)
+        self._send_json(200, {"items": kidsnote.pending_texts(conn)})
+
+    def _notices_import(self, conn, query) -> None:
+        p = self._user(conn)
+        body = self._read_json()
+        if not isinstance(body, dict):
+            raise ApiError(400, "VALIDATION_ERROR", "items가 필요해요.")
+        res = bs.import_notices(conn, body.get("items"), p["actor"], preview=body.get("preview") is not False,
+                                allow_store_original=p["user"]["role"] == "owner")
+        if not res["preview"]:
+            audit(conn, p["actor"], "notices_import", json.dumps(res["summary"]))
+        self._send_json(200, res)
+
+    # ───── v2: 준비물·등하원·픽업·공지 일정 ─────
+    def _prep_list(self, conn, query) -> None:
+        self._user(conn)
+        start, end = self._range(query, 7)
+        self._send_json(200, {"items": bs.list_prep(conn, start, end)})
+
+    def _prep_add(self, conn, query) -> None:
+        p = self._user(conn)
+        self._send_json(201, bs.add_prep(conn, self._read_json(), p["actor"]))
+
+    def _prep_patch(self, conn, query, pid) -> None:
+        p = self._user(conn)
+        self._send_json(200, bs.update_prep(conn, pid, self._read_json(), p["actor"]))
+
+    def _commute_get(self, conn, query) -> None:
+        self._user(conn)
+        start, end = self._range(query, 13)
+        settings = bs.get_settings(conn)
+        exc = bs.list_exceptions(conn, start, end)
+        row = conn.execute("SELECT data FROM family_doc WHERE id = 1").fetchone()
+        doc = json.loads(row["data"]) if row else None
+        from display import children_of
+        kids = children_of(doc if isinstance(doc, dict) else None)
+        days = []
+        d = start
+        while d <= end:
+            days.append({"date": d, "plans": [p for p in (bs.commute_day(settings, exc, c["id"], d) for c in kids) if p]})
+            d = bs.add_days(d, 1)
+        self._send_json(200, {"settings": settings["commute"], "version": settings["_versions"]["commute"], "exceptions": exc, "days": days})
+
+    def _exception_add(self, conn, query) -> None:
+        p = self._user(conn)
+        self._send_json(201, bs.add_exception(conn, self._read_json(), p["actor"]))
+
+    def _exception_delete(self, conn, query, eid) -> None:
+        self._user(conn)
+        bs.delete_exception(conn, eid)
+        self._send_json(200, {"ok": True})
+
+    def _pickups_get(self, conn, query) -> None:
+        self._user(conn)
+        start, end = self._range(query, 6)
+        row = conn.execute("SELECT data FROM family_doc WHERE id = 1").fetchone()
+        doc = json.loads(row["data"]) if row else None
+        from display import adults_of, children_of
+        kids = [c["id"] for c in children_of(doc if isinstance(doc, dict) else None)]
+        self._send_json(200, {"pickups": bs.pickups_for(conn, bs.get_settings(conn), kids, start, end),
+                              "adults": adults_of(doc if isinstance(doc, dict) else None)})
+
+    def _pickups_put(self, conn, query) -> None:
+        p = self._user(conn)
+        bs.set_pickup(conn, self._read_json(), p["actor"])
+        self._send_json(200, {"ok": True})
+
+    def _notice_events_list(self, conn, query) -> None:
+        self._user(conn)
+        nid = self._q(query, "noticeId")
+        if nid:
+            self._send_json(200, {"events": bs.notice_events_of(conn, nid)})
+            return
+        start, end = self._range(query, 30)
+        self._send_json(200, {"events": bs.list_notice_events(conn, start, end)})
+
+    def _notice_event_link(self, conn, query, ev_id) -> None:
+        self._user(conn)
+        bs.link_notice_event(conn, ev_id, self._read_json())
+        self._send_json(200, {"ok": True})
+
+    # ───── v2: 키즈노트(공지 자동 수집) ─────
+    def _kidsnote_status(self, conn, query) -> None:
+        self._user(conn)
+        self._send_json(200, kidsnote.status(conn, self.server.adapter))
+
+    def _kidsnote_sync(self, conn, query) -> None:
+        p = self._user(conn)
+        res = kidsnote.run_sync(conn, self.server.adapter, self.server.analyzer, "manual")
+        audit(conn, p["actor"], "notice_sync", "ok" if res.get("ok") else "fail")
+        self._send_json(200, res)
+
+    def _kidsnote_resume(self, conn, query) -> None:
+        p = self._user(conn)
+        kidsnote.resume(conn)
+        audit(conn, p["actor"], "notice_sync_resume")
+        self._send_json(200, kidsnote.status(conn, self.server.adapter))
 
     def _login(self, conn: sqlite3.Connection, query: Dict[str, List[str]]) -> None:
         cfg = self.server.config
@@ -593,7 +934,10 @@ class Handler(BaseHTTPRequestHandler):
             "schemaVersion": BACKUP_SCHEMA_VERSION,
             "exportedAt": stamp,
             "data": json.loads(row["data"]),
+            "v2": {t: [dict(r) for r in conn.execute(f'SELECT * FROM "{t}"')] for t in V2_BACKUP_TABLES},
         }
+        for r in doc["v2"]["notices"]:
+            r["original_text"] = None
         fname = "monggeul-backup-" + re.sub(r"[^0-9]", "", stamp)[:14] + ".json"
         self._send_json(200, doc, [("Content-Disposition", f'attachment; filename="{fname}"')])
 
@@ -607,6 +951,14 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(400, "VALIDATION_ERROR", "백업 파일 형식이 올바르지 않아요.")
         text = json.dumps(body["data"], ensure_ascii=False, separators=(",", ":"))
         stamp = now_iso()
+        v2 = body.get("v2")
+        if v2 is not None and (not isinstance(v2, dict) or any(not isinstance(v2[t], list) for t in V2_BACKUP_TABLES if t in v2)):
+            raise ApiError(400, "VALIDATION_ERROR", "백업 파일의 v2 형식이 올바르지 않아요.")
+        if isinstance(v2, dict):
+            # v2 표는 doc_backups 에 들어가지 않으므로 복원 직전 DB 파일 전체를 남긴다
+            migrations.backup_db(self.server.config.db_path,
+                                 self.server.config.db_path.parent / "backups" / f"pre-restore-{re.sub(r'[^0-9]', '', stamp)[:14]}.sqlite3")
+            migrations.prune_backups(self.server.config.db_path.parent / "backups", "pre-restore-", keep=10)
         conn.execute("BEGIN IMMEDIATE")
         try:
             cur = conn.execute("SELECT version, data FROM family_doc WHERE id = 1").fetchone()
@@ -623,12 +975,28 @@ class Handler(BaseHTTPRequestHandler):
                 "UPDATE family_doc SET version = ?, data = ?, updated_at = ?, updated_by = ? WHERE id = 1",
                 (version, text, stamp, u["login_id"]),
             )
+            if isinstance(v2, dict):  # v2 표도 백업 시점으로 되돌린다(같은 트랜잭션)
+                for t in V2_BACKUP_TABLES:
+                    if t not in v2:  # 백업 파일에 없는 표는 건드리지 않는다
+                        continue
+                    cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{t}")')]
+                    conn.execute(f'DELETE FROM "{t}"')
+                    for row in v2.get(t, []):
+                        if not isinstance(row, dict):
+                            raise ApiError(400, "VALIDATION_ERROR", "백업 파일의 v2 행 형식이 올바르지 않아요.")
+                        if t == "notices":  # 요약은 다시 검증해 넣는다(깨진 백업으로 화면이 멈추지 않게)
+                            try:
+                                row = {**row, "digest": json.dumps(bs.clean_digest(json.loads(row.get("digest") or "null")), ensure_ascii=False), "original_text": None}
+                            except (bs.StoreError, ValueError, TypeError):
+                                raise ApiError(400, "VALIDATION_ERROR", "백업 파일의 공지 요약이 올바르지 않아요.")
+                        keys = [k for k in row if k in cols]
+                        conn.execute(f'INSERT INTO "{t}"({",".join(keys)}) VALUES({",".join("?" * len(keys))})', [row[k] for k in keys])
             audit(conn, u["login_id"], "restore", f"v{cur['version']}->v{version}")
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
             raise
-        self._send_json(200, {"version": version, "updatedAt": stamp})
+        self._send_json(200, {"version": version, "updatedAt": stamp, "v2Restored": isinstance(v2, dict)})
 
     # ───── 정적 파일 ─────
     def _static(self, raw_path: str, head: bool) -> None:
@@ -666,11 +1034,86 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, data, ctype, headers, head=head)
 
 
+_ID = r"([A-Za-z0-9_-]{1,64})"
+ROUTES: List[Tuple[str, "re.Pattern[str]", str]] = [
+    (m, re.compile(p), name) for m, p, name in [
+        ("GET", r"/api/health", "_health"),
+        ("POST", r"/api/login", "_login"),
+        ("POST", r"/api/logout", "_logout"),
+        ("GET", r"/api/me", "_me"),
+        ("GET", r"/api/state", "_state_get"),
+        ("PUT", r"/api/state", "_state_put"),
+        ("GET", r"/api/backup", "_backup"),
+        ("POST", r"/api/restore", "_restore"),
+        ("GET", r"/api/settings", "_settings_get"),
+        ("PUT", r"/api/settings/(location|commute|screen|notices|kidsnote|tvPrivacy)", "_settings_put"),
+        ("PUT", r"/api/weather-key", "_weather_key_put"),
+        ("DELETE", r"/api/weather-key", "_weather_key_delete"),
+        ("POST", r"/api/devices/pairing-codes", "_pairing_create"),
+        ("POST", r"/api/devices/pair", "_pair"),
+        ("GET", r"/api/devices", "_devices_list"),
+        ("DELETE", r"/api/devices/" + _ID, "_device_revoke"),
+        ("GET", r"/api/device/me", "_device_me"),
+        ("POST", r"/api/device/unpair", "_device_unpair"),
+        ("GET", r"/api/board", "_board"),
+        ("GET", r"/api/weather", "_weather"),
+        ("GET", r"/api/notices", "_notices_list"),
+        ("POST", r"/api/notices", "_notices_create"),
+        ("POST", r"/api/notices/import", "_notices_import"),
+        ("GET", r"/api/notices/pending-analysis", "_notices_pending"),
+        ("GET", r"/api/notices/" + _ID, "_notice_get"),
+        ("PUT", r"/api/notices/" + _ID, "_notice_put"),
+        ("DELETE", r"/api/notices/" + _ID, "_notice_delete"),
+        ("POST", r"/api/notices/" + _ID + r"/confirm", "_notice_confirm"),
+        ("GET", r"/api/notices/" + _ID + r"/history", "_notice_history"),
+        ("POST", r"/api/notices/" + _ID + r"/analysis", "_notice_analysis"),
+        ("GET", r"/api/preparations", "_prep_list"),
+        ("POST", r"/api/preparations", "_prep_add"),
+        ("PATCH", r"/api/preparations/" + _ID, "_prep_patch"),
+        ("GET", r"/api/commute", "_commute_get"),
+        ("POST", r"/api/commute/exceptions", "_exception_add"),
+        ("DELETE", r"/api/commute/exceptions/" + _ID, "_exception_delete"),
+        ("GET", r"/api/pickups", "_pickups_get"),
+        ("PUT", r"/api/pickups", "_pickups_put"),
+        ("GET", r"/api/notice-events", "_notice_events_list"),
+        ("PUT", r"/api/notice-events/" + _ID + r"/link", "_notice_event_link"),
+        ("GET", r"/api/kidsnote/status", "_kidsnote_status"),
+        ("POST", r"/api/kidsnote/sync", "_kidsnote_sync"),
+        ("POST", r"/api/kidsnote/resume", "_kidsnote_resume"),
+    ]
+]
+
+
+class WeatherRefresher(threading.Thread):
+    """설정된 위치의 날씨를 10분마다 미리 받아 둔다(화면 요청은 캐시만 읽는다)."""
+
+    def __init__(self, server: "FamilyServer", interval: float = 600.0):
+        super().__init__(name="weather-refresh", daemon=True)
+        self.server, self.interval = server, interval
+        self.stop_event = threading.Event()
+
+    def run(self) -> None:  # pragma: no cover - 스레드 루프
+        while True:
+            try:
+                conn = connect(self.server.config.db_path)
+                try:
+                    loc = bs.get_settings(conn)["location"]
+                    if loc:
+                        nx, ny = latlon_to_grid(loc["lat"], loc["lon"])
+                        self.server.weather.refresh(conn, nx, ny)
+                finally:
+                    conn.close()
+            except Exception as e:
+                print(f"[weather] {type(e).__name__}", file=sys.stderr, flush=True)
+            if self.stop_event.wait(self.interval):
+                return
+
+
 # ───────────────────────── 실행 ─────────────────────────
 
 
 def make_server(config: Config, host: str = "127.0.0.1", port: int = 0) -> FamilyServer:
-    init_db(config.db_path)
+    init_db(config.db_path, lambda s: print(s, flush=True))
     conn = connect(config.db_path)
     try:
         conn.execute("DELETE FROM sessions WHERE expires_at <= ?", (int(time.time()),))
@@ -716,15 +1159,54 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--dist", default=os.environ.get("MGFB_DIST", str(DEFAULT_DIST_DIR)), help="React dist 폴더")
     ap.add_argument("--init-admin", metavar="ID", help="owner 계정 생성(비밀번호는 getpass로 입력)")
     ap.add_argument("--add-user", metavar="ID", help="성인(adult) 계정 생성(비밀번호는 getpass로 입력)")
+    ap.add_argument("--migrate-dry-run", action="store_true", help="DB 사본에 마이그레이션을 시험 적용하고 결과만 보여 준다(운영 DB 변경 없음)")
+    ap.add_argument("--restore-db", metavar="BACKUP", help="서버를 끈 상태에서 백업 파일로 DB를 되돌린다")
+    ap.add_argument("--set-weather-key", action="store_true", help="기상청(공공데이터포털) 서비스 키를 저장한다(getpass로 입력)")
+    ap.add_argument("--notice-source", default=os.environ.get("MGFB_NOTICE_SOURCE"),
+                    help="개발·QA 전용: mock:<JSON 파일> 이면 모의 공지 수집을 쓴다")
     args = ap.parse_args(argv)
     db_path = Path(args.db).expanduser()
     if args.init_admin:
         return _prompt_user(args.init_admin, "owner", db_path)
     if args.add_user:
         return _prompt_user(args.add_user, "adult", db_path)
+    if args.migrate_dry_run:
+        if not db_path.is_file():
+            print(f"DB가 없어요: {db_path}", file=sys.stderr)
+            return 1
+        try:
+            for line in migrations.dry_run(db_path, connect):
+                print(line)
+        except migrations.MigrationError as e:
+            print(f"시험 실패: {e}", file=sys.stderr)
+            return 1
+        return 0
+    if args.restore_db:
+        migrations.restore_backup(Path(args.restore_db).expanduser(), db_path)
+        print(f"DB를 되돌렸어요: {db_path} (이전 DB는 같은 폴더에 .before-restore-* 로 남겼어요)")
+        return 0
+    if args.set_weather_key:
+        key = getpass.getpass("기상청 단기예보 서비스 키(Decoding 키): ").strip()
+        if not key:
+            print("키가 비어 있어요.", file=sys.stderr)
+            return 1
+        path = save_key(db_path.parent, key)
+        print(f"저장했어요: {path}")
+        return 0
 
-    config = Config(db_path=db_path, dist_dir=Path(args.dist).expanduser())
-    server = make_server(config, args.host, args.port)
+    config = Config(db_path=db_path, dist_dir=Path(args.dist).expanduser(), notice_source=args.notice_source)
+    try:
+        server = make_server(config, args.host, args.port)
+    except migrations.MigrationError as e:
+        print(f"DB 업그레이드 실패: {e}", file=sys.stderr)
+        if e.backup:
+            print(f"되돌리려면: python tablet_server/app.py --restore-db \"{e.backup}\"", file=sys.stderr)
+        return 1
+    server.weather.background = True
+    WeatherRefresher(server).start()
+    if server.adapter.mode == "mock":
+        print(f"[주의] 모의 공지 수집 사용 중: {args.notice_source}")
+    kidsnote.SyncScheduler(db_path, connect, server.adapter, server.analyzer).start()
     conn = connect(db_path)
     try:
         has_owner = conn.execute("SELECT 1 FROM users WHERE role = 'owner' LIMIT 1").fetchone() is not None

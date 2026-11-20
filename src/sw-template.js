@@ -1,7 +1,11 @@
 // 몽글 패밀리보드 서비스 워커: 앱 셸 + 같은 출처 정적 파일만 캐시한다.
 // 다른 출처와 POST는 가로채지 않으며, /api 응답(로그인·가족 데이터)은 캐시하지 않는다.
-const VERSION = 'mgfb-shell-v1';
+const VERSION = 'mgfb-shell-__BUILD_ID__'; // 빌드마다 바뀐다(vite.config.ts swPlugin)
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
+
+self.addEventListener('message', (event) => {
+  if (event.data === 'SKIP_WAITING') self.skipWaiting();
+});
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -27,6 +31,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (/\/api(\/|$)/.test(url.pathname)) return; // API(로그인·가족 데이터)는 절대 캐시하지 않는다
+  if (/\/sw\.js$/.test(url.pathname)) return; // 버전 확인용: 늘 서버에서 받는다
   if (req.mode === 'navigate') {
     // 네트워크 우선, 실패하면 캐시된 앱 셸
     event.respondWith(

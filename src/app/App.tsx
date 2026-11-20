@@ -5,7 +5,10 @@ import { ToastProvider } from '../ui/Toasts';
 import { FullscreenKeeper } from '../ui/Fullscreen';
 import { LoginPage } from '../pages/Auth';
 import { CalendarPage } from '../pages/Calendar';
-import { DisplayPage } from '../pages/Display';
+import { BoardHomePage, DisplayPage } from '../pages/Board';
+import { NoticeDetailPage, NoticeImportPage, NoticeNewPage, NoticesPage } from '../pages/notices/NoticePages';
+import { PrepPage } from '../pages/Prep';
+import '../pages/v2pages.css';
 import { HomePage } from '../pages/Home';
 import { KidDetailPage, KidsPage } from '../pages/Kids';
 import { NotFoundPage, PlaceholderPage } from '../pages/Placeholders';
@@ -23,7 +26,13 @@ export const routes: RouteObject[] = [
   {
     element: <AppGate />,
     children: [
-      { path: '/', element: <HomePage /> },
+      { path: '/', element: <BoardHomePage /> },
+      { path: '/overview', element: <HomePage /> },
+      { path: '/notices', element: <NoticesPage /> },
+      { path: '/notices/new', element: <NoticeNewPage /> },
+      { path: '/notices/import', element: <NoticeImportPage /> },
+      { path: '/notices/:id', element: <NoticeDetailPage /> },
+      { path: '/prep', element: <PrepPage /> },
       { path: '/calendar', element: <CalendarPage /> },
       { path: '/tasks', element: <TasksPage /> },
       { path: '/kids', element: <KidsPage /> },
