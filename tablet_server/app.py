@@ -921,6 +921,11 @@ class Handler(BaseHTTPRequestHandler):
                     for row in v2.get(t, []):
                         if not isinstance(row, dict):
                             raise ApiError(400, "VALIDATION_ERROR", "백업 파일의 v2 행 형식이 올바르지 않아요.")
+                        if t == "notices":  # 요약은 다시 검증해 넣는다(깨진 백업으로 화면이 멈추지 않게)
+                            try:
+                                row = {**row, "digest": json.dumps(bs.clean_digest(json.loads(row.get("digest") or "null")), ensure_ascii=False), "original_text": None}
+                            except (bs.StoreError, ValueError, TypeError):
+                                raise ApiError(400, "VALIDATION_ERROR", "백업 파일의 공지 요약이 올바르지 않아요.")
                         keys = [k for k in row if k in cols]
                         conn.execute(f'INSERT INTO "{t}"({",".join(keys)}) VALUES({",".join("?" * len(keys))})', [row[k] for k in keys])
             audit(conn, u["login_id"], "restore", f"v{cur['version']}->v{version}")

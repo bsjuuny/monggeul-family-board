@@ -472,6 +472,12 @@ class BackupV2Tests(V2Server):
         bad = {**bk, "v2": {"notices": "x"}}
         st, _, _ = self.owner.request("POST", "/api/restore", bad)
         self.assertEqual(st, 400)
+        broken = json.loads(json.dumps(bk))
+        broken["v2"]["notices"][0]["digest"] = "{not json"
+        st, _, _ = self.owner.request("POST", "/api/restore", broken)
+        self.assertEqual(st, 400)
+        _, lst, _ = self.owner.request("GET", "/api/notices")
+        self.assertEqual([n["title"] for n in lst["notices"]], ["백업 전"])  # 실패한 복원은 아무것도 바꾸지 않는다
 
 
 # ───────────────────────── 등하원·픽업·보드 ─────────────────────────
