@@ -47,10 +47,34 @@ function WeatherSection({ s }: { s: Settings }) {
   const save = useSave();
   const [loc, setLoc] = useState({ name: s.location?.name ?? '', lat: String(s.location?.lat ?? ''), lon: String(s.location?.lon ?? '') });
   useEffect(() => setLoc({ name: s.location?.name ?? '', lat: String(s.location?.lat ?? ''), lon: String(s.location?.lon ?? '') }), [s.location, s._versions.location]);
+  const toast = useToast();
+  const [locating, setLocating] = useState(false);
+  const useHere = () => {
+    // 위치 권한은 https 또는 이 태블릿(127.0.0.1)에서만 쓸 수 있다
+    if (!window.isSecureContext || !navigator.geolocation) {
+      toast.error('이 주소에서는 현재 위치를 쓸 수 없어요. 태블릿에서 127.0.0.1 주소로 열거나 도시를 골라 주세요.');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocating(false);
+        const isPreset = !loc.name.trim() || PRESETS.some((p) => p.name === loc.name);
+        setLoc({ name: isPreset ? '우리 동네' : loc.name, lat: pos.coords.latitude.toFixed(4), lon: pos.coords.longitude.toFixed(4) });
+        toast.info("현재 위치를 넣었어요. '위치 저장'을 눌러 주세요.");
+      },
+      (err) => {
+        setLocating(false);
+        toast.error(err.code === err.PERMISSION_DENIED ? '위치 권한이 꺼져 있어요. 브라우저 주소창의 사이트 설정에서 위치를 허용해 주세요.' : '현재 위치를 찾지 못했어요. 잠시 뒤 다시 하거나 도시를 골라 주세요.');
+      },
+      { enableHighAccuracy: false, timeout: 15000, maximumAge: 10 * 60 * 1000 },
+    );
+  };
   return (
     <Section id="set-weather" title="🌤 날씨 지역">
       <p className="muted">기상청 단기예보로 등원·하원 시점 날씨와 옷차림을 알려 드려요. 동네 위치를 정해 주세요{s.location?.grid ? ` (지금 격자 ${s.location.grid.join(', ')})` : ''}.</p>
-      <div className="btn-row">{PRESETS.map((p) => <button key={p.name} type="button" className="btn ghost small" aria-pressed={Number(loc.lat) === p.lat && Number(loc.lon) === p.lon} onClick={() => setLoc({ name: p.name, lat: String(p.lat), lon: String(p.lon) })}>{p.name}</button>)}</div>
+      <div className="btn-row">{PRESETS.map((p) => <button key={p.name} type="button" className="btn ghost small" aria-pressed={Number(loc.lat) === p.lat && Number(loc.lon) === p.lon} onClick={() => setLoc({ name: p.name, lat: String(p.lat), lon: String(p.lon) })}>{p.name}</button>)}
+        <button type="button" className="btn secondary small" onClick={useHere} disabled={locating} data-testid="use-here">📍 {locating ? '찾는 중…' : '현재 위치'}</button></div>
       <div className="row3">
         <div className="field"><label htmlFor="wx-name">이름</label><input id="wx-name" value={loc.name} maxLength={30} onChange={(e) => setLoc({ ...loc, name: e.target.value })} /></div>
         <div className="field"><label htmlFor="wx-lat">위도</label><input id="wx-lat" inputMode="decimal" value={loc.lat} onChange={(e) => setLoc({ ...loc, lat: e.target.value })} /></div>
@@ -212,8 +236,8 @@ function TvSection({ s }: { s: Settings }) {
   return (
     <Section id="set-tv" title="📺 TV 연결">
       <p className="muted">거실 TV·태블릿 브라우저에서 <strong>이 서버 주소/#/display</strong> 를 열고, 아래 코드를 넣으면 로그인 없이 오늘 정보만 보여요. TV에서는 설정·공지 원문을 볼 수 없어요.</p>
-      <button type="button" className="btn" onClick={() => make.mutate()} disabled={make.isPending} data-testid="make-pair-code">연결 코드 만들기</button>
-      {code && <p className="big-code" data-testid="pair-code" aria-live="polite">{code.code} <small className="muted">{new Date(code.expiresAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}까지</small></p>}
+      <button type="button" className="btn tv-pair-btn" onClick={() => make.mutate()} disabled={make.isPending} data-testid="make-pair-code">연결 코드 만들기</button>
+      {code && <p className="big-code" data-testid="pair-code" aria-live="polite">{code.code} <small className="muted">{new Date(code.expiresAt).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })}까지 TV에 넣어 주세요</small></p>}
       <ul className="list">
         {live.map((d) => (
           <li key={d.id} className="prep-row"><span>📺 {d.label} · 마지막 접속 {d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString('ko-KR') : '-'}</span>

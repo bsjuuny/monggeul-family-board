@@ -43,3 +43,7 @@
 .notice-status--auto { background: var(--color-aqua); color: #23584f; }
 .big-code { font-family: 'Jua', sans-serif; font-size: 44px; letter-spacing: .2em; }
 .btn-row + .row3 { margin-top: 12px; }
+.tv-pair-btn { margin-bottom: 16px; }
+#set-weather .btn-row + .row3 + .btn { margin-bottom: 8px; }
+.big-code small { display: block; margin-top: 6px; font-family: 'Noto Sans KR', system-ui, sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0; }
+#set-tv .list + * { margin-top: 12px; }
