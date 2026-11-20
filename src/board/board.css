@@ -345,3 +345,27 @@ a.v2-notice:hover { background: var(--v2-accent-soft); }
 .v2-weather > :not(.v2-deco), .v2-notices > :not(.v2-deco), .v2-prep > :not(.v2-deco) { position: relative; z-index: 1; }
 .v2-board .v2-mini > div { background: rgba(255, 248, 234, 0.9); }
 @media (max-width: 600px) { .v2-deco--corner { width: 30%; opacity: 0.6; } }
+
+/* 키 작은 가로 화면(태블릿 전체 화면 1000×640 등): 날씨 카드를 좌우로 나눠 아래가 잘리지 않게 */
+@media (orientation: landscape) and (min-width: 601px) and (max-height: 720px) {
+  .v2-board { --v2-pad: 14px; --v2-gap: 12px; --v2-type-temp: 50px; --v2-type-card-title: 19px; --v2-type-chip: 14px; --v2-chip-h: 38px; }
+  .v2-card { gap: 8px; }
+  .v2-weather { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 38%); grid-auto-rows: min-content; align-content: start; column-gap: 12px; row-gap: 8px; }
+  .v2-weather > .v2-card__head, .v2-weather > .v2-chips, .v2-weather > p.v2-muted, .v2-weather > .v2-empty { grid-column: 1 / -1; }
+  .v2-weather > .v2-weather__now { grid-column: 1; }
+  .v2-board .v2-weather > .v2-mini { grid-column: 2; grid-row: 2; grid-template-columns: 1fr; gap: 6px; margin-top: 0; align-self: center; }
+  .v2-weather .v2-mini > div { padding: 4px 10px; }
+  .v2-weather .v2-mini dd { font-size: 17px; }
+  .v2-weather__icon { width: 52px; }
+  /* 풍경 그림은 숫자 뒤가 아니라 카드 맨 아래에 옅게 */
+  .v2-deco--weather { bottom: 0; height: 26%; opacity: 0.35; }
+}
+@media (orientation: landscape) and (min-width: 601px) and (max-height: 600px) {
+  .v2-board { --v2-hero-h: 158px; --v2-type-clock: 46px; --v2-type-count: 42px; --v2-type-greeting: 18px; --v2-type-temp: 44px; }
+  .v2-commute__sub, .v2-notices .v2-more { display: none; }
+  .v2-board { --v2-chip-h: 34px; }
+  .v2-weather { row-gap: 4px; }
+  .v2-weather .v2-chips { flex-wrap: nowrap; overflow: hidden; }
+  .v2-weather .v2-chip { padding-inline: 10px; white-space: nowrap; }
+  .v2-weather .v2-mini dd { font-size: 16px; }
+}

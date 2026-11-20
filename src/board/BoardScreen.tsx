@@ -234,6 +234,10 @@ function WeatherCard({ board, period, interactive }: { board: Board; period: Per
         const temp = evening ? w.tomorrow.dropoff?.tmp ?? w.tomorrow.min : w.current.temp;
         const cond = evening ? w.tomorrow.dropoff?.condition ?? w.tomorrow.condition : w.current.condition;
         const advice = evening ? w.tomorrowAdvice : w.advice;
+        // 등원하지 않는 날은 등원·하원 칸 대신 그날 최저·최고와 비 올 확률
+        const goes = (evening ? board.commute.tomorrow : board.commute.today).some((p) => p.attends);
+        const day = evening ? w.tomorrow : w.today;
+        const range = day.min == null ? '–' : `${Math.round(day.min)}° / ${Math.round(day.max ?? day.min)}°`;
         return (
           <>
             <div className="v2-weather__now">
@@ -245,12 +249,17 @@ function WeatherCard({ board, period, interactive }: { board: Board; period: Per
             </div>
             {advice.length > 0
               ? <ul className="v2-chips" aria-label="옷차림·우산 안내">{advice.slice(0, 3).map((a) => <li key={a.code} className={`v2-chip v2-chip--${a.tone}`}><Icon name={adviceIcon(a.code)} size={20} />{a.text}</li>)}</ul>
-              : <p className="v2-muted">등하원 시각 예보가 없어 옷차림 안내를 쉬어요</p>}
+              : <p className="v2-muted">{goes ? '등하원 시각 예보가 없어 옷차림 안내를 쉬어요' : evening ? '내일은 등원이 없는 날이에요' : '오늘은 등원이 없는 날이에요'}</p>}
             <dl className="v2-mini">
-              {evening ? (
+              {!goes ? (
+                <>
+                  <div><dt>최저·최고</dt><dd>{range}</dd></div>
+                  <div><dt>비 올 확률</dt><dd>{day.popMax == null ? '–' : `${day.popMax}%`}</dd></div>
+                </>
+              ) : evening ? (
                 <>
                   <div><dt>내일 등원</dt><dd>{w.tomorrow.dropoff ? `${w.tomorrow.dropoff.time} · ${Math.round(w.tomorrow.dropoff.tmp ?? 0)}°` : board.commute.configured ? '예보 없음' : '시각 미설정'}</dd></div>
-                  <div><dt>최저·최고</dt><dd>{w.tomorrow.min == null ? '–' : `${Math.round(w.tomorrow.min)}° / ${Math.round(w.tomorrow.max ?? w.tomorrow.min)}°`}</dd></div>
+                  <div><dt>최저·최고</dt><dd>{range}</dd></div>
                 </>
               ) : (
                 <>
