@@ -47,7 +47,7 @@ function BoardLoading({ label }: { label: string }) {
 }
 
 const MENU = [
-  { to: '/overview', label: '가족 한눈에', icon: 'home' as const },
+  { to: '/overview', label: '이번 주 흐름', icon: 'home' as const },
   { to: '/notices', label: '공지 정리', icon: 'bell' as const },
   { to: '/prep', label: '준비물·픽업', icon: 'bag' as const },
   { to: '/calendar', label: '캘린더', icon: 'calendar' as const },

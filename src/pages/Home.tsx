@@ -146,7 +146,7 @@ function ShoppingCard({ tasks }: { tasks: Task[] }) {
 }
 
 export function HomePage() {
-  usePageTitle('홈');
+  usePageTitle('이번 주');
   const { tz, familyName } = useSession();
   const today = todayIn(tz);
   const tomorrow = addDays(today, 1);
@@ -166,7 +166,7 @@ export function HomePage() {
     <div className="home concept-seven-home">
       <header className="home-title-row">
         <div><span className="eyebrow">{familyName} · 이번 주</span><h1><span>{formatKoreanDate(today)}</span> {weekdayKo(today)}요일의 흐름</h1></div>
-        <p>{familyName} 가족의 오늘을 한눈에 봐요.</p>
+        <p>오늘 일정·할 일·습관과 이번 주를 함께 봐요.</p>
       </header>
       <QueryView q={weekEvents} rows={2}>{(events) => <WeekRibbon today={today} events={events} tz={tz} />}</QueryView>
       <div className="home-board">

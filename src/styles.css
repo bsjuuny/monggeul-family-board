@@ -950,3 +950,11 @@ h3 { font-weight: 800; }
 .back-link:hover { border-color: var(--color-violet); }
 /* 대화상자는 페이지 위쪽 하늘색이 아니라 카드와 같은 크림색 */
 .modal { background: var(--color-surface); border: 1px solid var(--color-line); }
+/* 이번 주 화면: 일정이 없을 때 큰 그림 때문에 태블릿 한 화면을 넘던 것 */
+@media (orientation: landscape) and (min-width: 900px) {
+  .timeline-empty { justify-content: center; gap: 8px; }
+  .empty-day-hero { width: 150px; height: 150px; margin: 0 auto; padding: 8px; }
+  .timeline-empty > p { margin: 0; font-size: 14px; }
+  .relaxed-ideas { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .relaxed-ideas span { justify-content: center; text-align: center; }
+}

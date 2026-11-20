@@ -98,7 +98,7 @@ function AdultShell() {
   const logout = useLogout();
   const toast = useToast();
   const location = useLocation();
-  const isHome = location.pathname === '/';
+  const isHome = location.pathname === '/overview';
   const isKids = location.pathname.startsWith('/kids');
   const [add, setAdd] = useState<null | 'sheet' | { type: 'event' } | { type: 'task'; kind: TaskKind }>(null);
   return (
@@ -114,8 +114,11 @@ function AdultShell() {
           {s.displayName}
           {s.isOwner ? ' · owner' : ' · 성인'}
         </span>
-        <Link className="btn ghost small topbar-link" to="/overview" aria-label="가족 한눈에">
+        <Link className="btn ghost small topbar-link" to="/" aria-label="한눈에 보는 오늘 보드">
           <span aria-hidden="true">☺</span><span className="topbar-label">한눈에</span>
+        </Link>
+        <Link className="btn ghost small topbar-link" to="/overview" aria-label="이번 주 흐름">
+          <span aria-hidden="true">▦</span><span className="topbar-label">이번 주</span>
         </Link>
         <Link className="btn ghost small topbar-link" to="/display" aria-label="TV 화면 미리보기">
           <span aria-hidden="true">📺</span><span className="topbar-label">TV 화면</span>
