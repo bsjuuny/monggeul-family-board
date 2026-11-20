@@ -8,6 +8,14 @@
 - 인증: ID/비밀번호, 12시간 `HttpOnly; SameSite=Strict` 세션 쿠키
 - 외부 서비스: Supabase, RPC, Edge Function, Cafe24가 필요하지 않습니다.
 
+## v2 (동화형 보드)
+
+- 메인 화면 `/`: 큰 시계, 아침·오후·저녁 화면, 등원·하원 카운트다운, 기상청 날씨·옷차림, 공지톡 소식, 준비물
+- TV 화면 `/#/display`: 설정 → TV 연결의 6자리 코드로 연결(로그인 없음, 읽기 전용)
+- 공지 정리·준비물·픽업 화면, 공지톡 가져오기, 키즈노트 수집 구조(실제 수집은 꺼짐)
+- 업그레이드·백업·복구: [docs/v2/OPERATIONS.md](docs/v2/OPERATIONS.md) · 결과 보고서: [docs/v2/V2_REPORT.md](docs/v2/V2_REPORT.md)
+- 기상청 키: `python tablet_server/app.py --set-weather-key` · 업그레이드 시험: `--migrate-dry-run` · 되돌리기: `--restore-db <백업>`
+
 ## Windows에서 바로 확인
 
 Node.js와 Python 3.9 이상이 필요합니다.
