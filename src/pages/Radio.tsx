@@ -41,14 +41,14 @@ export function RadioPage() {
   const [station, setStation] = useState<string>('cbs_music');
   const [device, setDevice] = useState<string>(() => stored(DEVICE_KEY) ?? '');
   const devices = useQuery({ queryKey: ['radio-devices'], queryFn: () => v2.radioDevices(), enabled: ready && mode === 'speaker', staleTime: 5 * 60 * 1000, retry: false });
-  const dev = device || settings.data?.radio.defaultDevice || devices.data?.default || '';
+  const dev = device || settings.data?.radio?.defaultDevice || devices.data?.default || '';
   const status = useQuery({ queryKey: ['radio-status', dev], queryFn: () => v2.radioStatus(dev || null), enabled: ready && mode === 'speaker', refetchInterval: 20_000, retry: false });
   const local = useLocalRadio();
 
   useEffect(() => {
-    const def = settings.data?.radio.defaultStation;
+    const def = settings.data?.radio?.defaultStation;
     if (def) setStation((cur) => (cur === 'cbs_music' ? def : cur));
-  }, [settings.data?.radio.defaultStation]);
+  }, [settings.data?.radio?.defaultStation]);
   useEffect(() => store(MODE_KEY, mode), [mode]);
 
   const refreshStatus = () => qc.invalidateQueries({ queryKey: ['radio-status'] });
