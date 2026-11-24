@@ -992,3 +992,58 @@ class BoardDayTests(unittest.TestCase):
         # 06:00 KST 부터는 월요일
         self.assertEqual(board.board_day(screen, datetime(2026, 11, 22, 21, 0, tzinfo=timezone.utc)), "2026-11-23")
         self.assertEqual(board.board_day(screen, datetime(2026, 11, 23, 14, 59, tzinfo=timezone.utc)), "2026-11-23")
+
+
+class PrivacyMaskTests(V2Server):
+    """공지 저장 전 가리기(privacy.py): 연락처 자동, 이름은 목록만, 이미 있는 공지에도 적용"""
+
+    def digest(self, title, summary="", supplies=()):
+        return {"title": title, "summary": summary, "kinds": ["general"], "eventDate": "2026-11-25", "dateConfidence": "exact",
+                "dates": [], "supplies": [{"text": t, "date": "2026-11-25", "for": "dropoff"} for t in supplies],
+                "clothing": [], "documents": [], "parentTasks": [], "fees": [], "dropoffChange": None, "pickupChange": None,
+                "closure": None, "needsReply": False, "replyText": "", "needsConfirmation": [], "cautions": [], "confidence": 0.9}
+
+    def post(self, title, summary="", supplies=(), h="a"):
+        return self.owner.request("POST", "/api/notices", {"source": "manual", "receivedOn": "2026-11-24", "contentHash": h * 64,
+                                                            "digest": self.digest(title, summary, supplies)})
+
+    def test_mask_text_rules(self):
+        import privacy
+        r = {"contacts": True, "names": sorted(["민준", "김민준"], key=len, reverse=True)}
+        self.assertEqual(privacy.mask_text("김민준 어머니 010-1234-5678, a.b@ex.com", r), "○○ 어머니 (연락처 가림), (이메일 가림)")
+        self.assertEqual(privacy.mask_text("민준이가 물통을 두고 갔어요", r), "○○이가 물통을 두고 갔어요")
+        self.assertEqual(privacy.mask_text("02)123-4567 / 031.123.4567", r), "(연락처 가림) / (연락처 가림)")
+        # 날짜·금액은 그대로
+        self.assertEqual(privacy.mask_text("2026-11-25 10,000원 11월 25일", r), "2026-11-25 10,000원 11월 25일")
+        self.assertEqual(privacy.mask_text("민준", {"contacts": False, "names": []}), "민준")
+
+    def test_new_notice_is_masked_and_settings_validate(self):
+        _, st, _ = self.owner.request("GET", "/api/settings")
+        self.assertEqual(st["privacy"], {"maskContacts": True, "maskNames": []})
+        code, _, _ = self.owner.request("PUT", "/api/settings/privacy", {"value": {"maskNames": ["민"]}, "baseVersion": 0})
+        self.assertEqual(code, 400)  # 한 글자 이름은 거절
+        code, res, _ = self.owner.request("PUT", "/api/settings/privacy", {"value": {"maskContacts": True, "maskNames": ["서아", " 김선생 ", "서아"]}, "baseVersion": 0})
+        self.assertEqual((code, res["value"]["maskNames"]), (200, ["서아", "김선생"]))
+        code, n, _ = self.post("서아 생일 파티", "김선생 010-9999-0000 로 연락", ["서아 선물"])
+        self.assertIn(code, (200, 201))
+        notice = n.get("notice", n)
+        self.assertEqual(notice["title"], "○○ 생일 파티")
+        self.assertEqual(notice["digest"]["summary"], "○○ (연락처 가림) 로 연락")
+        self.assertEqual(notice["digest"]["supplies"][0]["text"], "○○ 선물")
+        self.assertEqual(notice["digest"]["eventDate"], "2026-11-25")
+
+    def test_saving_names_masks_existing_notices(self):
+        code, n, _ = self.post("하준이와 짝꿍 활동", "", ["하준 이름표"], h="b")
+        nid = n.get("notice", n)["id"]
+        code, res, _ = self.owner.request("PUT", "/api/settings/privacy", {"value": {"maskContacts": True, "maskNames": ["하준"]}, "baseVersion": 0})
+        self.assertEqual((code, res.get("maskedNotices")), (200, 1))
+        _, got, _ = self.owner.request("GET", f"/api/notices/{nid}")
+        self.assertEqual(got["title"], "○○이와 짝꿍 활동")
+        conn = app.connect(self.db)
+        try:
+            texts = [r[0] for r in conn.execute("SELECT text FROM prep_items WHERE notice_id = ?", (nid,))]
+            hist = [r[0] for r in conn.execute("SELECT snapshot FROM notice_history WHERE notice_id = ? AND snapshot IS NOT NULL", (nid,))]
+        finally:
+            conn.close()
+        self.assertTrue(texts and all("하준" not in t for t in texts), texts)
+        self.assertTrue(all("하준" not in h for h in hist))

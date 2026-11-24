@@ -204,7 +204,7 @@ export function NoticeNewPage() {
   return (
     <div className="stack" data-testid="notice-new">
       <h1>공지 붙여넣기</h1>
-      <p className="muted">어린이집 공지·알림장 글을 붙여넣으면 날짜·준비물·등하원 변경을 정리해요. 분석은 이 기기에서 하고, 원문은 설정에서 켠 경우에만 저장해요.</p>
+      <p className="muted">어린이집 공지·알림장 글을 붙여넣으면 날짜·준비물·등하원 변경을 정리해요. 분석은 이 기기에서 하고, 원문은 설정에서 켠 경우에만 저장해요. 저장할 때 전화번호·이메일과 설정의 '가릴 이름'은 ○○로 바꿔요.</p>
       <div className="field"><label htmlFor="nt-text">공지 내용</label><textarea id="nt-text" rows={8} value={text} onChange={(e) => { setText(e.target.value); setDraft(null); }} /></div>
       <div className="field"><label htmlFor="nt-recv">공지를 받은 날 ("내일" 같은 말의 기준)</label><input id="nt-recv" type="date" value={received} onChange={(e) => { setReceived(e.target.value); setDraft(null); }} /></div>
       <div className="btn-row">

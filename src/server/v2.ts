@@ -148,9 +148,11 @@ export interface Settings {
   notices: { storeOriginal: boolean; autoShowGeneral: boolean };
   kidsnote: { enabled: boolean; times: string[] };
   tvPrivacy: { hideChildNames: boolean; hideNoticeTitles: boolean; hidePickup: boolean };
+  /** 공지 저장 전 가리기: 연락처 자동, 이름은 목록만 ○○로 */
+  privacy: { maskContacts: boolean; maskNames: string[] };
   weatherKeyConfigured: boolean;
   weatherKeySource: 'env' | 'file' | null;
-  _versions: Record<'location' | 'commute' | 'screen' | 'notices' | 'kidsnote' | 'tvPrivacy', number>;
+  _versions: Record<'location' | 'commute' | 'screen' | 'notices' | 'kidsnote' | 'tvPrivacy' | 'privacy', number>;
 }
 export type SettingKey = keyof Settings['_versions'];
 
@@ -231,7 +233,7 @@ export function v2(api: ServerApi) {
     board: () => api.request<Board>('GET', '/api/board'),
     settings: () => api.request<Settings>('GET', '/api/settings'),
     putSetting: <K extends SettingKey>(key: K, value: unknown, baseVersion: number) =>
-      api.request<{ key: K; value: unknown; version: number }>('PUT', `/api/settings/${key}`, { value, baseVersion }),
+      api.request<{ key: K; value: unknown; version: number; maskedNotices?: number }>('PUT', `/api/settings/${key}`, { value, baseVersion }),
     setWeatherKey: (key: string) => api.request<{ saved: boolean; check: 'ok'; message: string }>('PUT', '/api/weather-key', { key }),
     deleteWeatherKey: () => api.request<{ removed: boolean }>('DELETE', '/api/weather-key'),
     // TV

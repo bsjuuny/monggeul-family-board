@@ -1046,7 +1046,7 @@ ROUTES: List[Tuple[str, "re.Pattern[str]", str]] = [
         ("GET", r"/api/backup", "_backup"),
         ("POST", r"/api/restore", "_restore"),
         ("GET", r"/api/settings", "_settings_get"),
-        ("PUT", r"/api/settings/(location|commute|screen|notices|kidsnote|tvPrivacy)", "_settings_put"),
+        ("PUT", r"/api/settings/(location|commute|screen|notices|kidsnote|tvPrivacy|privacy)", "_settings_put"),
         ("PUT", r"/api/weather-key", "_weather_key_put"),
         ("DELETE", r"/api/weather-key", "_weather_key_delete"),
         ("POST", r"/api/devices/pairing-codes", "_pairing_create"),
