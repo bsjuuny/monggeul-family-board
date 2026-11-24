@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import privacy
+from radio import clean_base_url as radio_base_url
 
 KST = timezone(timedelta(hours=9))
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -113,6 +114,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "tvPrivacy": {"hideChildNames": False, "hideNoticeTitles": False, "hidePickup": False},
     # 공지 저장 전 가리기(privacy.py): 연락처 자동, 이름은 보호자가 정한 목록만
     "privacy": {"maskContacts": True, "maskHonorifics": True, "maskNames": []},
+    # 미니PC radio-cast 주소(집 안 http 주소만)·기본 스피커·기본 채널
+    "radio": {"baseUrl": None, "defaultDevice": None, "defaultStation": "cbs_music"},
 }
 
 
@@ -214,6 +217,17 @@ def validate_setting(key: str, value: Any) -> Any:
             if n not in names:
                 names.append(n)
         return {"maskContacts": value.get("maskContacts", True) is not False, "maskHonorifics": value.get("maskHonorifics", True) is not False, "maskNames": names}
+    if key == "radio":
+        if not isinstance(value, dict):
+            raise StoreError(400, "VALIDATION_ERROR", "라디오 설정 형식이 올바르지 않아요.")
+        raw = value.get("baseUrl")
+        base = radio_base_url(raw)
+        if raw not in (None, "") and base is None:
+            raise StoreError(400, "VALIDATION_ERROR", "라디오 서버 주소는 집 안 주소로 넣어 주세요(예: http://192.168.0.130:8765).")
+        dev = _s(value.get("defaultDevice"), 60) or None
+        sid = value.get("defaultStation")
+        return {"baseUrl": base, "defaultDevice": dev,
+                "defaultStation": sid if isinstance(sid, str) and re.fullmatch(r"[a-z0-9_]{2,32}", sid) else "cbs_music"}
     if key == "kidsnote":
         if not isinstance(value, dict):
             raise StoreError(400, "VALIDATION_ERROR", "키즈노트 설정 형식이 올바르지 않아요.")

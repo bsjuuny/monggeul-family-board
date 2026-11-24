@@ -374,3 +374,14 @@ a.v2-notice:hover { background: var(--v2-accent-soft); }
 .v2-commute__next { display: flex; flex-direction: column; gap: 2px; margin-top: 12px; padding: 10px 16px; border-radius: var(--v2-radius-inner); background: var(--v2-cream-100); }
 .v2-commute__next span { font-size: var(--v2-type-support); color: var(--v2-ink-muted); font-weight: 700; }
 .v2-commute__next b { font: 400 var(--v2-type-card-title) / 1.2 var(--v2-font-round); font-variant-numeric: tabular-nums; }
+
+/* 이 기기에서 듣는 라디오(메뉴 버튼 왼쪽) */
+.v2-radio-chip {
+  position: absolute; z-index: 5; top: calc(var(--v2-outer) + 10px); right: calc(var(--v2-outer) + 128px);
+  display: inline-flex; align-items: center; min-height: 48px; border-radius: 999px; overflow: hidden;
+  border: 1px solid var(--v2-line); background: var(--v2-surface-glass); box-shadow: var(--v2-shadow-card);
+  font: 700 var(--v2-type-chip) / 1 var(--v2-font-body);
+}
+.v2-radio-chip a { display: inline-flex; align-items: center; gap: 6px; padding: 0 12px 0 14px; min-height: 48px; color: var(--v2-ink); text-decoration: none; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v2-radio-chip button { min-width: 48px; min-height: 48px; border: 0; border-left: 1px solid var(--v2-line); background: transparent; color: var(--v2-ink); font: inherit; cursor: pointer; }
+@media (max-width: 600px) { .v2-radio-chip { top: 12px; right: 120px; } }

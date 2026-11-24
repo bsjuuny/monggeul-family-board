@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import app  # noqa: E402
 import board_store as bs  # noqa: E402
+import radio  # noqa: E402
 from analyzer_bridge import NodeAnalyzer  # noqa: E402
 
 KST = timezone(timedelta(hours=9))
@@ -41,6 +42,39 @@ def fake_kma(key: str):
                     items.append({"fcstDate": t.strftime("%Y%m%d"), "fcstTime": t.strftime("%H00"), "category": cat, "fcstValue": str(val)})
         return {"response": {"header": {"resultCode": "00"}, "body": {"items": {"item": items}}}}
     return fetch
+
+
+QA_RADIO_KEY = "qa-radio-pass"
+_radio_state = {"station": None}
+
+
+def fake_radio(url, headers, timeout):
+    """가짜 radio-cast(미니PC·스피커 없이 화면 QA). 진짜 스피커로는 아무것도 보내지 않는다."""
+    if headers.get("X-Radio-Key") != QA_RADIO_KEY:
+        return 401, {"ok": False, "auth": "need"}
+    path = url.split(":8765", 1)[1]
+    names = {"cbs_music": "CBS 음악FM", "cbs_std": "CBS 표준FM", "kbs_cool": "KBS 쿨FM", "kbs_classic": "KBS 클래식FM", "kbs_1radio": "KBS 1라디오",
+             "kbs_happy": "KBS 해피FM", "mbc_fm4u": "MBC FM4U", "mbc_std": "MBC 표준FM", "mbc_allthat": "MBC 올댓뮤직",
+             "sbs_power": "SBS 파워FM", "sbs_love": "SBS 러브FM", "ebs_fm": "EBS FM"}  # 실제 radio-cast 12개 채널과 같게
+    if path.startswith("/api/stations"):
+        return 200, [{"id": k, "group": v.split()[0], "name": v.split()[1]} for k, v in names.items()]
+    if path.startswith("/api/devices"):
+        return 200, {"default": "주방", "devices": [{"name": "주방", "model": "Google Nest Hub"}, {"name": "LRoom-speaker", "model": "Google Nest Audio"}]}
+    if path.startswith("/play"):
+        sid = path.split("station=", 1)[1].split("&", 1)[0]
+        _radio_state["station"] = sid
+        return 200, {"ok": True, "device": "주방", "station": sid, "title": names.get(sid, sid)}
+    if path.startswith("/stop"):
+        _radio_state["station"] = None
+        return 200, {"ok": True, "device": "주방"}
+    if path.startswith("/volume"):
+        return 200, {"ok": True, "device": "주방", "volume": 0.35}
+    if path.startswith("/status"):
+        sid = _radio_state["station"]
+        return 200, {"ok": True, "device": "주방", "state": "PLAYING" if sid else None, "station": sid, "title": names.get(sid) if sid else None, "volume": 0.3}
+    if path.startswith("/stream"):
+        return 200, {"ok": True, "station": "cbs_music", "title": "CBS 음악FM", "url": "https://qa.invalid/live.m3u8"}
+    return 404, {"ok": False}
 
 
 def seed(db: Path) -> None:
@@ -68,6 +102,8 @@ def seed(db: Path) -> None:
     conn.close()
     conn = app.connect(db)
     bs.put_setting(conn, "location", {"name": "우리 동네", "lat": 37.5665, "lon": 126.978}, 0, "qa")
+    bs.put_setting(conn, "radio", {"baseUrl": "http://192.168.0.130:8765", "defaultDevice": "주방"}, 0, "qa")
+    radio.save_key(db.parent, QA_RADIO_KEY)
     bs.put_setting(conn, "commute", {"children": {"c1": {"weekdays": [1, 2, 3, 4, 5, 6, 7], "leaveHomeAt": "08:30", "arriveBy": "09:00", "pickupAt": "16:30",
                                                           "pickupAssignee": "엄마", "pickupAtByWeekday": {}, "pickupAssigneeByWeekday": {}}}}, 0, "qa")
     texts = [
@@ -89,7 +125,7 @@ def main() -> int:
     os.environ["MGFB_KMA_KEY"] = "qa-fake-key"
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         db = Path(tmp) / "qa.sqlite3"
-        config = app.Config(db_path=db, dist_dir=app.DEFAULT_DIST_DIR, login_max_failures=1000, login_ip_max_failures=1000, weather_fetcher=fake_kma)
+        config = app.Config(db_path=db, dist_dir=app.DEFAULT_DIST_DIR, login_max_failures=1000, login_ip_max_failures=1000, weather_fetcher=fake_kma, radio_fetcher=fake_radio)
         server = app.make_server(config, "127.0.0.1", args.port)
         app.create_user(db, "owner", "qa-owner-pass", "owner")
         app.create_user(db, "mom", "qa-mom-pass-1", "adult")

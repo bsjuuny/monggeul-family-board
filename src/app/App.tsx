@@ -10,6 +10,7 @@ import { NoticeDetailPage, NoticeImportPage, NoticeNewPage, NoticesPage } from '
 import { PrepPage } from '../pages/Prep';
 import '../pages/v2pages.css';
 import { HomePage } from '../pages/Home';
+import { RadioPage } from '../pages/Radio';
 import { KidDetailPage, KidsPage } from '../pages/Kids';
 import { NotFoundPage, PlaceholderPage } from '../pages/Placeholders';
 import { SettingsPage } from '../pages/Settings';
@@ -38,6 +39,7 @@ export const routes: RouteObject[] = [
       { path: '/kids', element: <KidsPage /> },
       { path: '/kids/:id', element: <KidDetailPage /> },
       { path: '/settings', element: <SettingsPage /> },
+      { path: '/radio', element: <RadioPage /> },
       {
         path: '/memories',
         element: <PlaceholderPage icon="📸" title="추억 앨범" body="가족 사진과 추억 슬라이드를 모아 보는 기능이에요." />,

@@ -1,0 +1,25 @@
+// 라디오 화면 캡처(qa_server 의 가짜 radio-cast): node tests/visual/ux-radio.mjs <baseURL> <outDir>
+import { chromium } from '@playwright/test';
+const [BASE, OUT] = process.argv.slice(2);
+const browser = await chromium.launch();
+const page = await (await browser.newContext({ viewport: { width: 1000, height: 640 }, baseURL: BASE })).newPage();
+await page.goto('./#/login');
+await page.getByLabel('ID', { exact: true }).fill('owner');
+await page.getByLabel('비밀번호').fill('qa-owner-pass');
+await page.getByRole('button', { name: '로그인', exact: true }).click();
+await page.getByTestId('v2-board').waitFor();
+await page.evaluate(() => { location.hash = '/radio'; });
+await page.getByTestId('radio-station-kbs_classic').click();
+await page.getByTestId('radio-play').click();
+await page.waitForTimeout(1500);
+console.log('speaker status:', await page.getByTestId('radio-status').innerText());
+await page.screenshot({ path: `${OUT}/radio-speaker.png` });
+await page.getByTestId('radio-mode-here').click();
+await page.getByTestId('radio-play-here').click();
+await page.waitForTimeout(2500);
+console.log('local status:', await page.getByTestId('radio-local-status').innerText());
+await page.screenshot({ path: `${OUT}/radio-here.png` });
+await page.evaluate(() => { location.hash = '/settings'; });
+await page.waitForTimeout(1200);
+await page.locator('#set-radio').screenshot({ path: `${OUT}/radio-settings.png` });
+await browser.close();

@@ -42,6 +42,7 @@ import kidsnote  # noqa: E402
 import migrations  # noqa: E402
 from analyzer_bridge import NodeAnalyzer  # noqa: E402
 from weather import WeatherService, delete_key, key_source, latlon_to_grid, save_key  # noqa: E402
+import radio  # noqa: E402
 
 SCHEMA_VERSION = 1  # 기본 테이블(v1) 버전. 이후 변경은 migrations.py 가 올린다.
 PBKDF2_ITERATIONS = 310_000
@@ -106,6 +107,7 @@ class Config:
     analyzer: Optional[Any] = None
     allow_remote_key_entry: bool = False  # 테스트 전용: 루프백이 아닌 곳에서도 키 입력 허용
     weather_fetcher: Optional[Callable[[str], Any]] = None
+    radio_fetcher: Optional[Callable[..., Any]] = None  # 테스트용 가짜 radio-cast
 
 
 class ApiError(Exception):
@@ -320,6 +322,7 @@ class FamilyServer(ThreadingHTTPServer):
         self.pair_limiter = RateLimiter(600, 10, 30)
         data_dir = config.db_path.parent
         self.weather = WeatherService(data_dir, config.weather_fetcher) if config.weather_fetcher else WeatherService(data_dir)
+        self.radio = radio.RadioClient(data_dir, config.radio_fetcher)
         self.adapter = kidsnote.adapter_from_spec(config.notice_source)
         self.analyzer = config.analyzer or NodeAnalyzer()
         super().__init__(address, Handler)
@@ -547,6 +550,8 @@ class Handler(BaseHTTPRequestHandler):
                     getattr(self, name)(conn, query, *match.groups())
                 except bs.StoreError as e:
                     raise ApiError(e.status, e.code, e.message, e.extra)
+                except radio.RadioError as e:
+                    raise ApiError(e.status, e.code, e.message)
             finally:
                 conn.close()
             return
@@ -577,6 +582,7 @@ class Handler(BaseHTTPRequestHandler):
         loc = s.get("location")
         s["weatherKeyConfigured"] = self.server.weather.key_configured()
         s["weatherKeySource"] = key_source(self.server.config.db_path.parent)
+        s["radioKeySource"] = radio.key_source(self.server.config.db_path.parent)
         if loc:
             s["location"] = {**loc, "grid": list(latlon_to_grid(loc["lat"], loc["lon"]))}
         self._send_json(200, s)
@@ -628,6 +634,94 @@ class Handler(BaseHTTPRequestHandler):
         removed = delete_key(self.server.config.db_path.parent)
         audit(conn, p["actor"], "weather_key_deleted")
         self._send_json(200, {"removed": removed})
+
+    # ───── v2: 라디오(미니PC radio-cast 대신 부르기) ─────
+    def _radio_settings(self, conn) -> Dict[str, Any]:
+        return bs.get_settings(conn)["radio"]
+
+    def _radio_key_put(self, conn, query) -> None:
+        """owner 가 태블릿(루프백)에서 radio-cast 비밀번호를 넣는다. 먼저 시험 호출해 맞을 때만 저장하고, 응답·로그에 남기지 않는다."""
+        p = self._user(conn)
+        if p["user"]["role"] != "owner":
+            raise ApiError(403, "FORBIDDEN", "라디오 비밀번호는 owner만 넣을 수 있어요.")
+        if not key_entry_allowed(self.client_address[0], self.server.config):
+            raise ApiError(403, "LOCAL_ONLY", "비밀번호가 Wi-Fi로 오가지 않도록 태블릿에서 직접 http://127.0.0.1:8787 을 열어 넣어 주세요.")
+        if radio.key_source(self.server.config.db_path.parent) == "env":
+            raise ApiError(409, "KEY_FROM_ENV", "지금은 서버 환경변수(MGFB_RADIO_KEY)의 비밀번호를 쓰고 있어요.")
+        body = self._read_json()
+        key = body.get("key") if isinstance(body, dict) else None
+        if not isinstance(key, str) or not key.strip() or len(key.strip()) > 200:
+            raise ApiError(400, "VALIDATION_ERROR", "radio-cast 비밀번호를 넣어 주세요.")
+        # 틀리면 RadioError 가 나서 저장하지 않는다
+        self.server.radio.call(self._radio_settings(conn).get("baseUrl"), "/api/stations", key=key.strip())
+        radio.save_key(self.server.config.db_path.parent, key.strip())
+        audit(conn, p["actor"], "radio_key_saved")
+        self._send_json(200, {"saved": True})
+
+    def _radio_key_delete(self, conn, query) -> None:
+        p = self._user(conn)
+        if p["user"]["role"] != "owner":
+            raise ApiError(403, "FORBIDDEN", "라디오 비밀번호는 owner만 지울 수 있어요.")
+        removed = radio.delete_key(self.server.config.db_path.parent)
+        audit(conn, p["actor"], "radio_key_deleted")
+        self._send_json(200, {"removed": removed})
+
+    def _radio_stations(self, conn, query) -> None:
+        self._user(conn)
+        res = self.server.radio.call(self._radio_settings(conn).get("baseUrl"), "/api/stations")
+        self._send_json(200, {"stations": res if isinstance(res, list) else []})
+
+    def _radio_devices(self, conn, query) -> None:
+        self._user(conn)
+        refresh = "1" if (query.get("refresh") or [""])[0] == "1" else None
+        res = self.server.radio.call(self._radio_settings(conn).get("baseUrl"), "/api/devices", {"refresh": refresh})
+        self._send_json(200, res if isinstance(res, dict) else {"devices": []})
+
+    def _radio_status(self, conn, query) -> None:
+        self._user(conn)
+        st = self._radio_settings(conn)
+        dev = radio.check_device((query.get("device") or [""])[0]) or st.get("defaultDevice")
+        self._send_json(200, self.server.radio.call(st.get("baseUrl"), "/status", {"device": dev}))
+
+    def _radio_stream(self, conn, query) -> None:
+        """태블릿 자체 스피커용: 방송 주소만 받아 온다(KBS·MBC·SBS 는 토큰 때문에 매번 새로)."""
+        self._user(conn)
+        sid = radio.check_station((query.get("station") or [""])[0])
+        res = self.server.radio.call(self._radio_settings(conn).get("baseUrl"), "/stream", {"station": sid})
+        url = res.get("url") if isinstance(res, dict) else None
+        if not isinstance(url, str) or not url.startswith("https://"):
+            raise ApiError(502, "RADIO_ERROR", "방송 주소를 받지 못했어요.")
+        self._send_json(200, {"station": sid, "title": res.get("title"), "url": url})
+
+    def _radio_play(self, conn, query) -> None:
+        p = self._user(conn)
+        body = self._read_json()
+        body = body if isinstance(body, dict) else {}
+        st = self._radio_settings(conn)
+        sid = radio.check_station(body.get("station"))
+        dev = radio.check_device(body.get("device")) or st.get("defaultDevice")
+        res = self.server.radio.call(st.get("baseUrl"), "/play", {"station": sid, "device": dev})
+        audit(conn, p["actor"], "radio_play", sid)
+        self._send_json(200, res)
+
+    def _radio_stop(self, conn, query) -> None:
+        self._user(conn)
+        body = self._read_json()
+        body = body if isinstance(body, dict) else {}
+        st = self._radio_settings(conn)
+        dev = radio.check_device(body.get("device")) or st.get("defaultDevice")
+        self._send_json(200, self.server.radio.call(st.get("baseUrl"), "/stop", {"device": dev}))
+
+    def _radio_volume(self, conn, query) -> None:
+        self._user(conn)
+        body = self._read_json()
+        body = body if isinstance(body, dict) else {}
+        step = body.get("step")
+        if step not in ("up", "down"):
+            raise ApiError(400, "VALIDATION_ERROR", "step 은 up 또는 down 이에요.")
+        st = self._radio_settings(conn)
+        dev = radio.check_device(body.get("device")) or st.get("defaultDevice")
+        self._send_json(200, self.server.radio.call(st.get("baseUrl"), "/volume", {"device": dev, "step": step}))
 
     # ───── v2: TV 기기 ─────
     def _pairing_create(self, conn, query) -> None:
@@ -1046,8 +1140,17 @@ ROUTES: List[Tuple[str, "re.Pattern[str]", str]] = [
         ("GET", r"/api/backup", "_backup"),
         ("POST", r"/api/restore", "_restore"),
         ("GET", r"/api/settings", "_settings_get"),
-        ("PUT", r"/api/settings/(location|commute|screen|notices|kidsnote|tvPrivacy|privacy)", "_settings_put"),
+        ("PUT", r"/api/settings/(location|commute|screen|notices|kidsnote|tvPrivacy|privacy|radio)", "_settings_put"),
         ("PUT", r"/api/weather-key", "_weather_key_put"),
+        ("PUT", r"/api/radio-key", "_radio_key_put"),
+        ("DELETE", r"/api/radio-key", "_radio_key_delete"),
+        ("GET", r"/api/radio/stations", "_radio_stations"),
+        ("GET", r"/api/radio/devices", "_radio_devices"),
+        ("GET", r"/api/radio/status", "_radio_status"),
+        ("GET", r"/api/radio/stream", "_radio_stream"),
+        ("POST", r"/api/radio/play", "_radio_play"),
+        ("POST", r"/api/radio/stop", "_radio_stop"),
+        ("POST", r"/api/radio/volume", "_radio_volume"),
         ("DELETE", r"/api/weather-key", "_weather_key_delete"),
         ("POST", r"/api/devices/pairing-codes", "_pairing_create"),
         ("POST", r"/api/devices/pair", "_pair"),
