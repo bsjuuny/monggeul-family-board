@@ -73,7 +73,8 @@ def fake_radio(url, headers, timeout):
         sid = _radio_state["station"]
         return 200, {"ok": True, "device": "주방", "state": "PLAYING" if sid else None, "station": sid, "title": names.get(sid) if sid else None, "volume": 0.3}
     if path.startswith("/stream"):
-        return 200, {"ok": True, "station": "cbs_music", "title": "CBS 음악FM", "url": "https://qa.invalid/live.m3u8"}
+        # MGFB_QA_STREAM_URL 을 주면 진짜 방송 주소로 이 기기 재생까지 확인할 수 있다
+        return 200, {"ok": True, "station": "cbs_music", "title": "CBS 음악FM", "url": os.environ.get("MGFB_QA_STREAM_URL") or "https://qa.invalid/live.m3u8"}
     return 404, {"ok": False}
 
 
