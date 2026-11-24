@@ -411,7 +411,7 @@ export function BoardScreen({ board, now, variant, online, menu, onTogglePrep, o
   const banner = useMemo(() => {
     const at = weatherStale ? kstHm(new Date(w.updatedAt)) : null;
     if (!online) return { tone: 'offline', icon: 'wifiOff' as const, text: at ? `오프라인 · 날씨는 ${at} 기준이에요` : '오프라인 · 마지막으로 받은 정보를 보여드려요' };
-    if (weatherStale) return { tone: 'warning', icon: 'refresh' as const, text: `날씨를 새로 받지 못했어요 · ${at} 기준` };
+    if (weatherStale) return { tone: 'warning', icon: 'refresh' as const, text: `날씨를 새로 받지 못했어요 · ${at} 기준${w.configured && w.available && w.error ? ` · ${w.error}` : ''}` };
     if (recovered) return { tone: 'success', icon: 'check' as const, text: '연결됐어요 · 정보 갱신 완료' };
     return null;
   }, [online, weatherStale, recovered, w]);

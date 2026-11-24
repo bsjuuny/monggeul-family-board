@@ -12,6 +12,7 @@ import math
 import os
 import sqlite3
 import threading
+import sys
 import time
 import urllib.parse
 import urllib.request
@@ -327,6 +328,8 @@ class WeatherService:
                 except WeatherError as e:
                     self._last_fail[fk] = time.monotonic()
                     self._last_error[fk] = str(e)
+                    # 문구에는 키가 들어가지 않는다(http_fetcher 가 URL 을 빼고 만든다)
+                    print(f"[weather] {kind} 받기 실패: {e}", file=sys.stderr, flush=True)
 
     def snapshot(self, conn: sqlite3.Connection, location: Optional[Dict[str, Any]], today: str,
                  dropoff_at: Optional[str], pickup_at: Optional[str], tomorrow_dropoff_at: Optional[str],
