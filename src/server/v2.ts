@@ -149,7 +149,7 @@ export interface Settings {
   kidsnote: { enabled: boolean; times: string[] };
   tvPrivacy: { hideChildNames: boolean; hideNoticeTitles: boolean; hidePickup: boolean };
   /** 공지 저장 전 가리기: 연락처 자동, 이름은 목록만 ○○로 */
-  privacy: { maskContacts: boolean; maskNames: string[] };
+  privacy: { maskContacts: boolean; maskHonorifics?: boolean; maskNames: string[] };
   weatherKeyConfigured: boolean;
   weatherKeySource: 'env' | 'file' | null;
   _versions: Record<'location' | 'commute' | 'screen' | 'notices' | 'kidsnote' | 'tvPrivacy' | 'privacy', number>;
@@ -246,7 +246,7 @@ export function v2(api: ServerApi) {
     // 공지
     notices: (status?: NoticeStatus) => api.request<{ notices: Notice[] }>('GET', `/api/notices${q({ status })}`),
     notice: (id: string, original = false) => api.request<Notice>('GET', `/api/notices/${id}${original ? '?original=1' : ''}`),
-    createNotice: (body: NewNoticeBody) => api.request<{ duplicate: boolean; notice: Notice }>('POST', '/api/notices', body),
+    createNotice: (body: NewNoticeBody) => api.request<{ duplicate: boolean; notice: Notice; masked?: number }>('POST', '/api/notices', body),
     updateNotice: (id: string, baseVersion: number, digest: NoticeDigest, receivedOn?: string) =>
       api.request<Notice>('PUT', `/api/notices/${id}`, { baseVersion, digest, receivedOn }),
     confirmNotice: (id: string, baseVersion: number, dismiss = false) => api.request<Notice>('POST', `/api/notices/${id}/confirm`, { baseVersion, dismiss }),

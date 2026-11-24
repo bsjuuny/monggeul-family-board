@@ -112,7 +112,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "kidsnote": {"enabled": False, "times": ["07:00", "11:00", "16:00", "20:00"]},
     "tvPrivacy": {"hideChildNames": False, "hideNoticeTitles": False, "hidePickup": False},
     # 공지 저장 전 가리기(privacy.py): 연락처 자동, 이름은 보호자가 정한 목록만
-    "privacy": {"maskContacts": True, "maskNames": []},
+    "privacy": {"maskContacts": True, "maskHonorifics": True, "maskNames": []},
 }
 
 
@@ -213,7 +213,7 @@ def validate_setting(key: str, value: Any) -> Any:
                 raise StoreError(400, "VALIDATION_ERROR", f"가릴 이름은 2~{privacy.MAX_NAME_LEN}글자로 넣어 주세요('{n[:10]}').")
             if n not in names:
                 names.append(n)
-        return {"maskContacts": value.get("maskContacts", True) is not False, "maskNames": names}
+        return {"maskContacts": value.get("maskContacts", True) is not False, "maskHonorifics": value.get("maskHonorifics", True) is not False, "maskNames": names}
     if key == "kidsnote":
         if not isinstance(value, dict):
             raise StoreError(400, "VALIDATION_ERROR", "키즈노트 설정 형식이 올바르지 않아요.")
@@ -627,7 +627,9 @@ def create_notice(conn: sqlite3.Connection, body: Dict[str, Any], actor: str, *,
     source_id = _s(body.get("sourceId"), 80) or None
     settings = get_settings(conn)
     rules = privacy.rules_from(settings)
-    dg = privacy.mask_digest(clean_digest(body.get("digest")), rules)
+    raw_dg = clean_digest(body.get("digest"))
+    dg = privacy.mask_digest(raw_dg, rules)
+    masked = privacy.count_masks(raw_dg, dg)
     original = body.get("originalText")
     store_original = isinstance(original, str) and original.strip() and (settings["notices"]["storeOriginal"] or (allow_store_original and body.get("storeOriginal") is True))
     original_text = privacy.mask_text(original.strip()[:20000], rules) if store_original else None
@@ -655,7 +657,7 @@ def create_notice(conn: sqlite3.Connection, body: Dict[str, Any], actor: str, *,
         _apply_derived(conn, nid, dg, review=status == "needs_review")
         _history(conn, nid, actor, "create", dg)
         row = conn.execute("SELECT * FROM notices WHERE id = ?", (nid,)).fetchone()
-    return {"duplicate": False, "notice": notice_json(row)}
+    return {"duplicate": False, "notice": notice_json(row), "masked": masked}
 
 
 def get_notice(conn: sqlite3.Connection, nid: str, include_original: bool = False) -> Dict[str, Any]:
