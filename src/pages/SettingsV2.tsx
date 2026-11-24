@@ -328,6 +328,61 @@ function PrivacySection({ s }: { s: Settings }) {
   );
 }
 
+/** 미니PC radio-cast 연결: 주소·기본 스피커는 누구나, 비밀번호는 owner 가 태블릿에서만 */
+function RadioSection({ s }: { s: Settings }) {
+  const { v2 } = useServices();
+  const { isOwner } = useSession();
+  const qc = useQueryClient();
+  const save = useSave();
+  const r = s.radio ?? { baseUrl: null, defaultDevice: null, defaultStation: 'cbs_music' };
+  const [base, setBase] = useState(r.baseUrl ?? '');
+  const [device, setDevice] = useState(r.defaultDevice ?? '');
+  const [key, setKey] = useState('');
+  const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
+  useEffect(() => { setBase(r.baseUrl ?? ''); setDevice(r.defaultDevice ?? ''); }, [r.baseUrl, r.defaultDevice, s._versions.radio]);
+  const saveKey = useMutation({
+    mutationFn: () => v2.setRadioKey(key.trim()),
+    onSuccess: async () => { setKey(''); setMsg({ tone: 'ok', text: '라디오 서버와 연결됐어요.' }); await qc.invalidateQueries({ queryKey: ['v2settings'] }); },
+    onError: (e) => setMsg({ tone: 'err', text: isFamilyBoardError(e) ? e.message : '비밀번호를 저장하지 못했어요.' }),
+  });
+  const removeKey = useMutation({
+    mutationFn: () => v2.deleteRadioKey(),
+    onSuccess: async () => { setMsg(null); await qc.invalidateQueries({ queryKey: ['v2settings'] }); },
+  });
+  const onTablet = ['127.0.0.1', 'localhost', '[::1]'].includes(window.location.hostname);
+  return (
+    <Section id="set-radio" title="📻 라디오">
+      <p className="muted">미니PC에서 돌고 있는 라디오 서버(radio-cast)와 연결해요. 보드 메뉴 → 라디오에서 집 안 스피커로 틀거나 이 태블릿으로 바로 들을 수 있어요.</p>
+      <div className="row2">
+        <div className="field"><label htmlFor="radio-base">라디오 서버 주소</label>
+          <input id="radio-base" inputMode="url" placeholder="http://192.168.0.130:8765" value={base} onChange={(e) => setBase(e.target.value)} /></div>
+        <div className="field"><label htmlFor="radio-default-device">기본 스피커(비우면 라디오 서버 기본값)</label>
+          <input id="radio-default-device" placeholder="예: 주방" maxLength={60} value={device} onChange={(e) => setDevice(e.target.value)} /></div>
+      </div>
+      <button type="button" className="btn" disabled={save.isPending}
+        onClick={() => save.mutate({ key: 'radio', value: { ...r, baseUrl: base.trim() || null, defaultDevice: device.trim() || null }, version: s._versions.radio ?? 0 })}>주소 저장</button>
+      <div className="sync-box" data-testid="radio-key">
+        <strong>라디오 서버 비밀번호 {s.radioKeySource ? '· 설정됨' : '· 없음'}</strong>
+        <p className="muted">radio-cast 에 정해 둔 비밀번호(아이폰 단축어에 넣은 것과 같은 값)를 넣어 주세요. 넣으면 라디오 서버에 한 번 물어보고 맞을 때만 저장해요. 저장한 비밀번호는 태블릿 안에만 있고 다시 보여 주지 않아요.</p>
+        {s.radioKeySource === 'env' ? <p className="muted">지금은 서버 환경변수의 비밀번호를 쓰고 있어요.</p>
+          : !isOwner ? <p className="muted">비밀번호는 owner 계정만 넣을 수 있어요.</p>
+            : !onTablet ? <p className="muted">비밀번호가 Wi-Fi로 오가지 않도록 <strong>태블릿에서 직접</strong> <code>http://127.0.0.1:8787</code> 을 열어 넣어 주세요.</p>
+              : !r.baseUrl ? <p className="muted">먼저 라디오 서버 주소를 저장해 주세요.</p>
+                : (
+                  <>
+                    <div className="row-form">
+                      <input type="password" autoComplete="off" spellCheck={false} aria-label="라디오 서버 비밀번호" placeholder={s.radioKeySource ? '바꾸려면 새 비밀번호' : '비밀번호'} value={key} onChange={(e) => setKey(e.target.value)} />
+                      <button type="button" className="btn" disabled={!key.trim() || saveKey.isPending} onClick={() => saveKey.mutate()}>{saveKey.isPending ? '확인하는 중…' : '확인하고 저장'}</button>
+                      {s.radioKeySource === 'file' && <button type="button" className="btn ghost" disabled={removeKey.isPending} onClick={() => removeKey.mutate()}>비밀번호 지우기</button>}
+                    </div>
+                  </>
+                )}
+        {msg && <p className={msg.tone === 'ok' ? 'muted' : 'err'} role="status">{msg.text}</p>}
+      </div>
+    </Section>
+  );
+}
+
 function UpdateSection() {
   const toast = useToast();
   return (
@@ -349,6 +404,7 @@ export function V2SettingsSections() {
       <TvSection s={q.data} />
       <NoticeSyncSection s={q.data} />
       <PrivacySection s={q.data} />
+      <RadioSection s={q.data} />
       <UpdateSection />
     </>
   );

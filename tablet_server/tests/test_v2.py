@@ -1065,3 +1065,70 @@ class PrivacyMaskTests(V2Server):
         for src, want in cases.items():
             self.assertEqual(privacy.mask_text(src, r), want, src)
         self.assertEqual(privacy.mask_text("이지은 선생님", {**r, "honorifics": False}), "이지은 선생님")
+
+
+class RadioTests(V2Server):
+    """미니PC radio-cast 대신 부르기: 주소 제한, 비밀번호(루프백·시험 호출·비공개), 스피커 조작, 태블릿 재생 주소"""
+
+    def setUp(self):
+        super().setUp()
+        self.calls = []
+        good = "radio-pass-1"
+
+        def fake(url, headers, timeout):
+            self.calls.append(url)
+            if headers.get("X-Radio-Key") != good:
+                return 401, {"ok": False, "auth": "need"}
+            path = url.split("8765", 1)[1]
+            if path.startswith("/api/stations"):
+                return 200, [{"id": "cbs_music", "group": "CBS", "name": "음악FM"}]
+            if path.startswith("/play"):
+                return 200, {"ok": True, "device": "주방", "station": "cbs_music", "title": "CBS 음악FM"}
+            if path.startswith("/stream"):
+                return 200, {"ok": True, "station": "cbs_music", "title": "CBS 음악FM", "url": "https://example.invalid/live.m3u8"}
+            if path.startswith("/status"):
+                return 200, {"ok": True, "device": "주방", "state": "PLAYING", "station": "cbs_music", "title": "CBS 음악FM", "volume": 0.3}
+            return 200, {"ok": True}
+
+        self.server.radio.fetch = fake
+        self.good = good
+
+    def test_base_url_must_be_home_network(self):
+        for bad in ("http://example.com:8765", "https://192.168.0.130:8765", "http://8.8.8.8:8765", "http://192.168.0.130:8765/x", "file:///etc"):
+            code, _, _ = self.owner.request("PUT", "/api/settings/radio", {"value": {"baseUrl": bad}, "baseVersion": 0})
+            self.assertEqual(code, 400, bad)
+        code, res, _ = self.owner.request("PUT", "/api/settings/radio", {"value": {"baseUrl": "http://192.168.0.130:8765/", "defaultDevice": "주방"}, "baseVersion": 0})
+        self.assertEqual((code, res["value"]["baseUrl"]), (200, "http://192.168.0.130:8765"))
+
+    def test_key_checked_before_save_and_never_returned(self):
+        self.owner.request("PUT", "/api/settings/radio", {"value": {"baseUrl": "http://192.168.0.130:8765"}, "baseVersion": 0})
+        code, _, _ = self.owner.request("POST", "/api/radio/play", {"station": "cbs_music"})
+        self.assertEqual(code, 409)  # 비밀번호 없음
+        code, res, _ = self.owner.request("PUT", "/api/radio-key", {"key": "wrong"})
+        self.assertEqual((code, res["error"]["code"]), (502, "RADIO_KEY_WRONG"))
+        self.assertFalse((self.db.parent / "radio_key.txt").exists())
+        code, _, _ = self.owner.request("PUT", "/api/radio-key", {"key": self.good})
+        self.assertEqual(code, 200)
+        _, st, _ = self.owner.request("GET", "/api/settings")
+        self.assertEqual(st["radioKeySource"], "file")
+        self.assertNotIn(self.good, json.dumps(st, ensure_ascii=False))
+        code, res, _ = self.owner.request("POST", "/api/radio/play", {"station": "cbs_music"})
+        self.assertEqual((code, res["title"]), (200, "CBS 음악FM"))
+        code, res, _ = self.owner.request("GET", "/api/radio/stream?station=cbs_music")
+        self.assertEqual((code, res["url"]), (200, "https://example.invalid/live.m3u8"))
+        code, _, _ = self.owner.request("POST", "/api/radio/play", {"station": "../etc"})
+        self.assertEqual(code, 400)
+        code, _, _ = self.owner.request("POST", "/api/radio/volume", {"step": "max"})
+        self.assertEqual(code, 400)
+        self.assertTrue(all(u.startswith("http://192.168.0.130:8765/") for u in self.calls))
+
+    def test_unreachable_server(self):
+        self.owner.request("PUT", "/api/settings/radio", {"value": {"baseUrl": "http://192.168.0.130:8765"}, "baseVersion": 0})
+        (self.db.parent / "radio_key.txt").write_text(self.good, encoding="utf-8")
+
+        def down(url, headers, timeout):
+            raise OSError("refused")
+
+        self.server.radio.fetch = down
+        code, res, _ = self.owner.request("GET", "/api/radio/status")
+        self.assertEqual((code, res["error"]["code"]), (502, "RADIO_UNREACHABLE"))

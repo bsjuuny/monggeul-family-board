@@ -32,6 +32,7 @@ const PATHS: Record<string, string> = {
   car: 'M5 16.5V12l1.8-4.5h10.4L19 12v4.5zM5 12h14M7.5 16.5v2M16.5 16.5v2M8 14h.01M16 14h.01',
   close: 'M6 6l12 12M18 6L6 18',
   tv: 'M3.5 5.5h17v11h-17zM9 20h6M12 16.5V20',
+  radio: 'M4 9.5h16v10H4zM7 9.5L17 4.5M8.5 14.5a2 2 0 1 0 0 .01M14 13h3.5M14 16h3.5',
 };
 
 export type IconName = keyof typeof PATHS;

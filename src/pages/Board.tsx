@@ -11,6 +11,7 @@ import type { Board, PrepItem } from '../server/v2';
 import { FullscreenButton } from '../ui/Fullscreen';
 import { useToast } from '../ui/Toasts';
 import { usePendingAnalysis } from './notices/usePendingAnalysis';
+import { stopLocal, useLocalRadio } from '../radio/player';
 import '../board/board.css';
 
 const BOARD_REFRESH_MS = 60_000;
@@ -53,9 +54,22 @@ const MENU = [
   { to: '/calendar', label: '캘린더', icon: 'calendar' as const },
   { to: '/tasks', label: '할 일', icon: 'check' as const },
   { to: '/kids', label: '아이', icon: 'person' as const },
+  { to: '/radio', label: '라디오', icon: 'radio' as const },
   { to: '/display', label: 'TV 화면', icon: 'tv' as const },
   { to: '/settings', label: '설정', icon: 'menu' as const },
 ];
+
+/** 이 기기에서 라디오가 나오고 있으면 보드 위에 작게 보여 주고 바로 멈출 수 있게 한다(TV 화면에는 없음) */
+function RadioChip() {
+  const r = useLocalRadio();
+  if (r.state !== 'playing' && r.state !== 'loading') return null;
+  return (
+    <div className="v2-radio-chip" data-testid="radio-chip">
+      <Link to="/radio" aria-label="라디오 화면 열기"><Icon name="radio" size={20} />{r.state === 'loading' ? '불러오는 중…' : r.title ?? '라디오'}</Link>
+      <button type="button" onClick={stopLocal} aria-label="라디오 멈춤">■</button>
+    </div>
+  );
+}
 
 function HomeMenu() {
   const [open, setOpen] = useState(false);
@@ -114,7 +128,7 @@ export function BoardHomePage() {
     return <BoardLoading label="오늘 정보를 불러오는 중이에요…" />;
   }
   return (
-    <BoardScreen board={q.data} now={now} variant="home" online={online && !q.isError} menu={<HomeMenu />}
+    <BoardScreen board={q.data} now={now} variant="home" online={online && !q.isError} menu={<><RadioChip /><HomeMenu /></>}
       onTogglePrep={(p) => toggle.mutate(p)} onPickupDone={() => pickupDone.mutate()} />
   );
 }

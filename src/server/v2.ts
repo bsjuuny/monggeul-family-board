@@ -46,6 +46,20 @@ export interface NextCommute {
   needsReview: boolean;
 }
 
+export interface RadioStation {
+  id: string;
+  group: string;
+  name: string;
+}
+export interface RadioStatus {
+  ok: boolean;
+  device: string;
+  state: string | null;
+  station: string | null;
+  title: string | null;
+  volume: number | null;
+}
+
 export interface CommutePlan {
   childId: string;
   date: string;
@@ -150,9 +164,12 @@ export interface Settings {
   tvPrivacy: { hideChildNames: boolean; hideNoticeTitles: boolean; hidePickup: boolean };
   /** 공지 저장 전 가리기: 연락처 자동, 이름은 목록만 ○○로 */
   privacy: { maskContacts: boolean; maskHonorifics?: boolean; maskNames: string[] };
+  /** 미니PC radio-cast(집 안 주소)·기본 스피커·기본 채널 */
+  radio: { baseUrl: string | null; defaultDevice: string | null; defaultStation: string };
   weatherKeyConfigured: boolean;
   weatherKeySource: 'env' | 'file' | null;
-  _versions: Record<'location' | 'commute' | 'screen' | 'notices' | 'kidsnote' | 'tvPrivacy' | 'privacy', number>;
+  radioKeySource?: 'env' | 'file' | null;
+  _versions: Record<'location' | 'commute' | 'screen' | 'notices' | 'kidsnote' | 'tvPrivacy' | 'privacy' | 'radio', number>;
 }
 export type SettingKey = keyof Settings['_versions'];
 
@@ -236,6 +253,15 @@ export function v2(api: ServerApi) {
       api.request<{ key: K; value: unknown; version: number; maskedNotices?: number }>('PUT', `/api/settings/${key}`, { value, baseVersion }),
     setWeatherKey: (key: string) => api.request<{ saved: boolean; check: 'ok'; message: string }>('PUT', '/api/weather-key', { key }),
     deleteWeatherKey: () => api.request<{ removed: boolean }>('DELETE', '/api/weather-key'),
+    setRadioKey: (key: string) => api.request<{ saved: boolean }>('PUT', '/api/radio-key', { key }),
+    deleteRadioKey: () => api.request<{ removed: boolean }>('DELETE', '/api/radio-key'),
+    radioStations: () => api.request<{ stations: RadioStation[] }>('GET', '/api/radio/stations'),
+    radioDevices: (refresh = false) => api.request<{ default: string; devices: Array<{ name: string; model: string }> }>('GET', `/api/radio/devices${refresh ? '?refresh=1' : ''}`),
+    radioStatus: (device?: string | null) => api.request<RadioStatus>('GET', `/api/radio/status${device ? `?device=${encodeURIComponent(device)}` : ''}`),
+    radioStream: (station: string) => api.request<{ station: string; title: string; url: string }>('GET', `/api/radio/stream?station=${encodeURIComponent(station)}`),
+    radioPlay: (station: string, device?: string | null) => api.request<{ device: string; title: string }>('POST', '/api/radio/play', { station, device: device || undefined }),
+    radioStop: (device?: string | null) => api.request<{ device: string }>('POST', '/api/radio/stop', { device: device || undefined }),
+    radioVolume: (step: 'up' | 'down', device?: string | null) => api.request<{ device: string; volume: number }>('POST', '/api/radio/volume', { step, device: device || undefined }),
     // TV
     createPairingCode: () => api.request<{ code: string; expiresAt: string }>('POST', '/api/devices/pairing-codes', {}),
     pair: (code: string, label: string) => api.request<{ id: string; label: string }>('POST', '/api/devices/pair', { code, label }),

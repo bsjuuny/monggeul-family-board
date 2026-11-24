@@ -108,7 +108,7 @@ function AdultShell() {
       </a>
       <header className="topbar">
         <div className="brand">
-          <Monggeul className="brand-mascot" decorative /> 몽글 패밀리보드 <small>{s.familyName}</small>
+          <Monggeul className="brand-mascot" decorative /> <span className="brand-name">몽글 패밀리보드</span> <small>{s.familyName}</small>
         </div>
         <span className="chip" title="로그인한 계정">
           {s.displayName}
