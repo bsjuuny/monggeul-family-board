@@ -84,9 +84,12 @@ MIME_TYPES = {
     ".woff": "font/woff",
 }
 
+# 라디오(이 기기에서 듣기)는 방송사 서버에서 방송 목록·조각을 직접 받는다. 그 주소만 연다(radio-cast stations.py 와 맞출 것).
+RADIO_HOSTS = "https://m-aac.cbs.co.kr https://*.gscdn.kbs.co.kr https://*.imbc.com https://radiolive.sbs.co.kr https://ebsonair.ebs.co.kr"
 HTML_CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; "
+    f"img-src 'self' data:; connect-src 'self' {RADIO_HOSTS}; media-src 'self' blob: {RADIO_HOSTS}; "
+    "manifest-src 'self'; worker-src 'self'; "
     "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 )
 

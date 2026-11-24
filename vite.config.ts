@@ -24,7 +24,9 @@ function cspPlugin(): Plugin {
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
-    "connect-src 'self'",
+    // 라디오(이 기기에서 듣기): 방송사 서버만 연다(tablet_server/app.py RADIO_HOSTS 와 같게)
+    "connect-src 'self' https://m-aac.cbs.co.kr https://*.gscdn.kbs.co.kr https://*.imbc.com https://radiolive.sbs.co.kr https://ebsonair.ebs.co.kr",
+    "media-src 'self' blob: https://m-aac.cbs.co.kr https://*.gscdn.kbs.co.kr https://*.imbc.com https://radiolive.sbs.co.kr https://ebsonair.ebs.co.kr",
     "manifest-src 'self'",
     "worker-src 'self'",
     "object-src 'none'",
@@ -45,7 +47,12 @@ export default defineConfig({
   plugins: [react(), cspPlugin(), swPlugin()],
   define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
   server: { proxy: { '/api': 'http://127.0.0.1:8787' } },
-  build: { sourcemap: false, target: 'es2022' },
+  build: {
+    sourcemap: false,
+    target: 'es2022',
+    // 글꼴 조각은 CSS 에 data: 로 넣지 않는다(CSP 가 data: 글꼴을 막아 일부 글자가 다른 글꼴로 보였다)
+    assetsInlineLimit: (file: string) => (/\.woff2?$/.test(file) ? false : undefined),
+  },
   test: {
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],

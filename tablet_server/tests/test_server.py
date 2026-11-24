@@ -383,6 +383,12 @@ class StaticTests(ServerTestCase):
             self.assertTrue(body)
         _, hdrs, _, _ = self.get("/")
         self.assertIn("default-src 'self'", hdrs["Content-Security-Policy"])
+        # 라디오(이 기기에서 듣기): 방송사 주소만 열리고 아무 곳이나 열리지는 않는다
+        csp = hdrs["Content-Security-Policy"]
+        self.assertIn("media-src 'self' blob: https://m-aac.cbs.co.kr", csp)
+        self.assertIn("https://*.gscdn.kbs.co.kr", csp)
+        self.assertNotIn("https:;", csp)
+        self.assertNotIn(" * ", csp)
         _, hdrs, _, _ = self.get("/assets/index-abc.js")
         self.assertIn("immutable", hdrs["Cache-Control"])
 
