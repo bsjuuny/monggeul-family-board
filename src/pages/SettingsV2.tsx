@@ -265,17 +265,18 @@ function NoticeSyncSection({ s }: { s: Settings }) {
   const resume = useMutation({ mutationFn: () => v2.syncResume(), onSuccess: () => qc.invalidateQueries({ queryKey: ['notice-sync'] }) });
   const st = status.data;
   return (
-    <Section id="set-notices" title="📨 공지 저장·자동 수집">
+    <Section id="set-notices" title="📨 공지 저장">
       <label className="check"><input type="checkbox" disabled={!isOwner || save.isPending} checked={s.notices.storeOriginal} onChange={(e) => save.mutate({ key: 'notices', value: { ...s.notices, storeOriginal: e.target.checked }, version: s._versions.notices })} /> 공지 원문도 태블릿에 저장(기본: 요약만 저장)</label>
       {!isOwner && <p className="muted">공지·자동 수집 설정은 owner만 바꿀 수 있어요.</p>}
-      {st && (
+      {st && !st.adapter.available && st.adapter.reason && <p className="muted" data-testid="sync-box">{st.adapter.reason}</p>}
+      {/* 자동 수집 칸은 쓸 수 있는 수집기(개발·QA 모의 수집 등)가 있을 때만 */}
+      {st && st.adapter.available && (
         <div className="sync-box" data-testid="sync-box">
-          <p><strong>{st.adapter.name}</strong> · {st.adapter.available ? (st.adapter.mode === 'mock' ? '모의 데이터(개발·QA)' : '사용 가능') : '사용할 수 없음'}</p>
-          {st.adapter.reason && <p className="muted">{st.adapter.reason}</p>}
-          <label className="check"><input type="checkbox" disabled={!isOwner || !st.adapter.available || save.isPending} checked={s.kidsnote.enabled}
+          <p><strong>{st.adapter.name}</strong> · {st.adapter.mode === 'mock' ? '모의 데이터(개발·QA)' : '사용 가능'}</p>
+          <label className="check"><input type="checkbox" disabled={!isOwner || save.isPending} checked={s.kidsnote.enabled}
             onChange={(e) => save.mutate({ key: 'kidsnote', value: { ...s.kidsnote, enabled: e.target.checked }, version: s._versions.kidsnote })} /> 정해진 시각에 자동으로 확인({s.kidsnote.times.join(', ')})</label>
           <div className="btn-row">
-            <button type="button" className="btn secondary" disabled={!st.adapter.available || run.isPending} onClick={() => run.mutate()}>지금 동기화</button>
+            <button type="button" className="btn secondary" disabled={run.isPending} onClick={() => run.mutate()}>지금 동기화</button>
             {st.state.paused && <button type="button" className="btn ghost" onClick={() => resume.mutate()}>자동 수집 다시 켜기</button>}
           </div>
           {st.state.lastError && <p className="err">마지막 오류: {st.state.lastError}{st.state.paused ? ' · 연속 실패로 자동 수집을 멈췄어요.' : ''}</p>}
