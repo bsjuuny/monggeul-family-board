@@ -6,6 +6,7 @@ import { useMembers } from '../app/queries';
 import { isFamilyBoardError } from '../domain/errors';
 import type { ChildCommute, SettingKey, Settings } from '../server/v2';
 import { useToast } from '../ui/Toasts';
+import { ConfirmDialog } from '../ui/Confirm';
 import { checkForUpdate, BUILD_ID } from '../app/swUpdate';
 
 const WD = ['월', '화', '수', '목', '금', '토', '일'];
@@ -293,22 +294,36 @@ function PrivacySection({ s }: { s: Settings }) {
   const save = useSave();
   const p = s.privacy ?? { maskContacts: true, maskNames: [] };
   const [contacts, setContacts] = useState(p.maskContacts);
+  const [honorifics, setHonorifics] = useState(p.maskHonorifics !== false);
   const [names, setNames] = useState(p.maskNames.join('\n'));
   useEffect(() => { setContacts(p.maskContacts); setNames(p.maskNames.join('\n')); }, [p.maskContacts, p.maskNames, s._versions.privacy]);
   const list = [...new Set(names.split(/[\n,]/).map((n) => n.trim()).filter(Boolean))];
   const tooShort = list.filter((n) => n.length < 2);
+  // 우리 아이 이름이 들어 있으면 막지 않고 한 번 묻는다(보드 공지에서도 ○○로 바뀌고 되돌릴 수 없음)
+  const members = useMembers();
+  const kids = (members.data?.children ?? []).filter((c) => c.active).map((c) => c.displayName);
+  // 한 글자 이름(예: 윤)은 '지윤' 같은 다른 이름까지 걸리므로 똑같을 때만, 두 글자 이상은 성까지 붙인 경우(김서윤)도 잡는다
+  const ownKids = list.filter((n) => kids.some((k) => (k.length < 2 ? n === k : n === k || n.includes(k))));
+  const [asking, setAsking] = useState(false);
+  const doSave = () => save.mutate({ key: 'privacy', value: { maskContacts: contacts, maskHonorifics: honorifics, maskNames: list }, version: s._versions.privacy ?? 0 }, { onSettled: () => setAsking(false) });
   return (
     <Section id="set-privacy" title="🔒 공지 개인정보 가리기">
       <p className="muted">공지·알림장에는 선생님이나 다른 아이·보호자 정보가 섞일 수 있어요. 보드에 저장하기 전에 아래 정보를 가려요. 가린 내용은 되돌릴 수 없어요.</p>
       <label className="check"><input type="checkbox" checked={contacts} onChange={(e) => setContacts(e.target.checked)} /> 전화번호·이메일 자동으로 가리기</label>
+      <label className="check"><input type="checkbox" checked={honorifics} onChange={(e) => setHonorifics(e.target.checked)} /> 호칭 앞 이름 자동으로 가리기(예: 이지은 선생님 → ○○ 선생님, 민준이 어머님 → ○○ 어머님)</label>
       <div className="field">
-        <label htmlFor="privacy-names">가릴 이름(한 줄에 하나, 2글자 이상)</label>
+        <label htmlFor="privacy-names">더 가릴 이름(한 줄에 하나, 2글자 이상)</label>
         <textarea id="privacy-names" rows={4} value={names} placeholder={'예:\n김선생\n민준\n서아 어머니'} onChange={(e) => setNames(e.target.value)} />
-        <span className="hint">다른 아이·선생님 이름을 넣으면 공지에서 ○○로 바뀌어요(예: 민준이가 → ○○이가). 우리 아이 이름은 넣지 마세요. 저장하면 이미 있는 공지에도 바로 적용돼요.</span>
+        <span className="hint">호칭 없이 나오는 다른 아이 이름을 넣으면 ○○로 바뀌어요(예: 민준이가 → ○○이가). 저장하면 이미 있는 공지에도 바로 적용돼요.</span>
         {tooShort.length > 0 && <span className="err">한 글자 이름은 다른 낱말까지 가릴 수 있어 넣을 수 없어요: {tooShort.join(', ')}</span>}
       </div>
       <button type="button" className="btn" data-testid="privacy-save" disabled={save.isPending || tooShort.length > 0}
-        onClick={() => save.mutate({ key: 'privacy', value: { maskContacts: contacts, maskNames: list }, version: s._versions.privacy ?? 0 })}>가리기 저장</button>
+        onClick={() => (ownKids.length ? setAsking(true) : doSave())}>가리기 저장</button>
+      {asking && (
+        <ConfirmDialog title="우리 아이 이름이 들어 있어요" confirmLabel="그래도 저장" busy={save.isPending}
+          message={`'${ownKids.join(', ')}'은(는) 우리 아이 이름이에요. 저장하면 보드 공지·준비물에서도 ○○로 바뀌고, 이미 저장된 공지도 바로 바뀌어 되돌릴 수 없어요. 인사말·등하원·습관 화면의 이름은 그대로예요. 거실 TV에서만 숨기려면 'TV 연결 → 아이 이름 가리기'를 쓰세요.`}
+          onConfirm={doSave} onClose={() => setAsking(false)} />
+      )}
     </Section>
   );
 }

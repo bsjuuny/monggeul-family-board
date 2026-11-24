@@ -1019,7 +1019,7 @@ class PrivacyMaskTests(V2Server):
 
     def test_new_notice_is_masked_and_settings_validate(self):
         _, st, _ = self.owner.request("GET", "/api/settings")
-        self.assertEqual(st["privacy"], {"maskContacts": True, "maskNames": []})
+        self.assertEqual(st["privacy"], {"maskContacts": True, "maskHonorifics": True, "maskNames": []})
         code, _, _ = self.owner.request("PUT", "/api/settings/privacy", {"value": {"maskNames": ["민"]}, "baseVersion": 0})
         self.assertEqual(code, 400)  # 한 글자 이름은 거절
         code, res, _ = self.owner.request("PUT", "/api/settings/privacy", {"value": {"maskContacts": True, "maskNames": ["서아", " 김선생 ", "서아"]}, "baseVersion": 0})
@@ -1027,6 +1027,7 @@ class PrivacyMaskTests(V2Server):
         code, n, _ = self.post("서아 생일 파티", "김선생 010-9999-0000 로 연락", ["서아 선물"])
         self.assertIn(code, (200, 201))
         notice = n.get("notice", n)
+        self.assertEqual(n.get("masked"), 4)  # 서아·김선생·연락처·서아(준비물)
         self.assertEqual(notice["title"], "○○ 생일 파티")
         self.assertEqual(notice["digest"]["summary"], "○○ (연락처 가림) 로 연락")
         self.assertEqual(notice["digest"]["supplies"][0]["text"], "○○ 선물")
@@ -1047,3 +1048,20 @@ class PrivacyMaskTests(V2Server):
             conn.close()
         self.assertTrue(texts and all("하준" not in t for t in texts), texts)
         self.assertTrue(all("하준" not in h for h in hist))
+
+    def test_honorific_names(self):
+        import privacy
+        r = {"contacts": True, "honorifics": True, "names": []}
+        cases = {
+            "이지은 선생님께 제출해 주세요": "○○ 선생님께 제출해 주세요",
+            "민준이 어머님이 보내주셨어요": "○○ 어머님이 보내주셨어요",
+            "김하준아버님 연락 바랍니다": "○○아버님 연락 바랍니다",
+            "담임 선생님께 알려 주세요": "담임 선생님께 알려 주세요",
+            "햇살반 선생님과 함께": "햇살반 선생님과 함께",
+            "고마운 선생님들": "고마운 선생님들",
+            "모든 어머님께": "모든 어머님께",
+            "우리 아이들 선생님": "우리 아이들 선생님",
+        }
+        for src, want in cases.items():
+            self.assertEqual(privacy.mask_text(src, r), want, src)
+        self.assertEqual(privacy.mask_text("이지은 선생님", {**r, "honorifics": False}), "이지은 선생님")

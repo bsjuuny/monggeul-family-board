@@ -196,7 +196,7 @@ export function NoticeNewPage() {
     onSuccess: async (r) => {
       await qc.invalidateQueries({ queryKey: ['notices'] });
       await qc.invalidateQueries({ queryKey: ['board'] });
-      toast.info(r.duplicate ? '이미 저장된 공지예요. 저장된 공지를 열게요.' : '공지를 저장했어요.');
+      toast.info(r.duplicate ? '이미 저장된 공지예요. 저장된 공지를 열게요.' : r.masked ? `공지를 저장했어요. 개인정보 ${r.masked}곳을 ○○로 가렸어요.` : '공지를 저장했어요.');
       navigate(`/notices/${r.notice.id}`, { replace: true });
     },
     onError: (e) => toast.error(errMsg(e, '저장하지 못했어요.')),
