@@ -56,8 +56,9 @@ class OfficialKidsnoteAdapter:
         return False
 
     def unavailable_reason(self) -> Optional[str]:
-        return ("키즈노트 공식 연동 수단(API·제휴)을 아직 확인하지 못해 실제 수집은 꺼져 있어요. "
-                "공지는 붙여넣기나 공지톡 가져오기로 넣어 주세요.")
+        # 2026-11-24 키즈노트 답변: 공식 API·제휴 없음, 외부 프로그램의 자동 접속은 지원·권장하지 않음
+        return ("키즈노트는 외부 연동을 제공하지 않아 자동으로 가져오지 않아요. "
+                "공지·알림장은 붙여넣기나 공지톡 가져오기로 넣어 주세요.")
 
     def fetch(self, since: Optional[str]) -> List[SourceItem]:  # pragma: no cover - 호출되지 않음
         raise RuntimeError("공식 연동 수단이 없어요.")

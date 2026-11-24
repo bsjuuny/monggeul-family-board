@@ -876,7 +876,7 @@ class OfficialAdapterTests(V2Server):
         st, s, _ = self.owner.request("GET", "/api/kidsnote/status")
         self.assertEqual(s["adapter"]["mode"], "official")
         self.assertFalse(s["adapter"]["available"])
-        self.assertIn("공식 연동 수단", s["adapter"]["reason"])
+        self.assertIn("외부 연동을 제공하지 않아", s["adapter"]["reason"])
         st, err, _ = self.owner.request("POST", "/api/kidsnote/sync", {})
         self.assertEqual((st, err["error"]["code"]), (409, "SOURCE_NOT_AVAILABLE"))
 
