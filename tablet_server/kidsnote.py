@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol
 
 import board_store as bs
+import privacy
 from analyzer_bridge import AnalyzerUnavailable, content_hash
 
 KST = timezone(timedelta(hours=9))
@@ -192,15 +193,16 @@ def run_sync(conn: sqlite3.Connection, adapter: NoticeSourceAdapter, analyzer: A
 def _upsert(conn: sqlite3.Connection, source: str, it: SourceItem, text: str, h: str, received: str,
             existing: Optional[sqlite3.Row], digest: Optional[Dict[str, Any]]) -> None:
     settings = bs.get_settings(conn)
+    rules = privacy.rules_from(settings)
     stamp = bs.now_iso()
     if digest is None:
-        dg = bs.clean_digest({"title": (it.title or text)[:60] or "새 공지", "summary": "분석 대기 중"})
+        dg = privacy.mask_digest(bs.clean_digest({"title": (it.title or text)[:60] or "새 공지", "summary": "분석 대기 중"}), rules)
         status = "pending_analysis"
-        original: Optional[str] = text  # 나중에 분석하려면 원문이 필요하다(분석 후 지운다)
+        original: Optional[str] = privacy.mask_text(text, rules)  # 나중에 분석하려면 원문이 필요하다(분석 후 지운다)
     else:
-        dg = bs.clean_digest(digest)
+        dg = privacy.mask_digest(bs.clean_digest(digest), rules)
         status = bs._status_for(dg, settings)
-        original = text if settings["notices"]["storeOriginal"] else None
+        original = privacy.mask_text(text, rules) if settings["notices"]["storeOriginal"] else None
     with bs._tx(conn):
         if existing is None:
             nid = bs.new_id("ntc")
@@ -225,8 +227,8 @@ def _upsert(conn: sqlite3.Connection, source: str, it: SourceItem, text: str, h:
 
 def save_analysis(conn: sqlite3.Connection, nid: str, digest: Any, actor: str) -> Dict[str, Any]:
     """분석 대기 공지를 브라우저가 분석해 보낸 결과로 채운다."""
-    dg = bs.clean_digest(digest)
     settings = bs.get_settings(conn)
+    dg = privacy.mask_digest(bs.clean_digest(digest), privacy.rules_from(settings))
     with bs._tx(conn):
         r = conn.execute("SELECT * FROM notices WHERE id = ? AND deleted_at IS NULL", (nid,)).fetchone()
         if not r or r["status"] != "pending_analysis":

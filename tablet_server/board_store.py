@@ -15,6 +15,8 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+import privacy
+
 KST = timezone(timedelta(hours=9))
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -109,6 +111,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "notices": {"storeOriginal": False, "autoShowGeneral": True},
     "kidsnote": {"enabled": False, "times": ["07:00", "11:00", "16:00", "20:00"]},
     "tvPrivacy": {"hideChildNames": False, "hideNoticeTitles": False, "hidePickup": False},
+    # 공지 저장 전 가리기(privacy.py): 연락처 자동, 이름은 보호자가 정한 목록만
+    "privacy": {"maskContacts": True, "maskNames": []},
 }
 
 
@@ -192,6 +196,24 @@ def validate_setting(key: str, value: Any) -> Any:
         if not isinstance(value, dict):
             raise StoreError(400, "VALIDATION_ERROR", "TV 개인정보 설정 형식이 올바르지 않아요.")
         return {k: value.get(k) is True for k in ("hideChildNames", "hideNoticeTitles", "hidePickup")}
+    if key == "privacy":
+        if not isinstance(value, dict):
+            raise StoreError(400, "VALIDATION_ERROR", "개인정보 가리기 설정 형식이 올바르지 않아요.")
+        raw = value.get("maskNames") or []
+        if not isinstance(raw, list) or len(raw) > privacy.MAX_NAMES:
+            raise StoreError(400, "VALIDATION_ERROR", f"가릴 이름은 {privacy.MAX_NAMES}개까지 넣을 수 있어요.")
+        names: List[str] = []
+        for n in raw:
+            if not isinstance(n, str):
+                continue
+            n = n.strip()
+            if not n:
+                continue
+            if len(n) < 2 or len(n) > privacy.MAX_NAME_LEN:
+                raise StoreError(400, "VALIDATION_ERROR", f"가릴 이름은 2~{privacy.MAX_NAME_LEN}글자로 넣어 주세요('{n[:10]}').")
+            if n not in names:
+                names.append(n)
+        return {"maskContacts": value.get("maskContacts", True) is not False, "maskNames": names}
     if key == "kidsnote":
         if not isinstance(value, dict):
             raise StoreError(400, "VALIDATION_ERROR", "키즈노트 설정 형식이 올바르지 않아요.")
@@ -231,7 +253,11 @@ def put_setting(conn: sqlite3.Connection, key: str, value: Any, base_version: An
         else:
             conn.execute("INSERT INTO settings(key, value, version, updated_at, updated_by) VALUES(?,?,1,?,?)",
                          (key, text, now_iso(), actor))
-    return {"key": key, "value": clean, "version": cur + 1}
+        masked = apply_privacy_existing(conn, privacy.rules_from({"privacy": clean})) if key == "privacy" else None
+    out = {"key": key, "value": clean, "version": cur + 1}
+    if masked is not None:
+        out["maskedNotices"] = masked
+    return out
 
 
 # ───────────────────────── TV 기기 ─────────────────────────
@@ -534,6 +560,35 @@ def _history(conn: sqlite3.Connection, notice_id: str, actor: str, action: str, 
                  (notice_id, now_iso(), actor, action, json.dumps(snapshot, ensure_ascii=False) if snapshot is not None else None))
 
 
+def apply_privacy_existing(conn: sqlite3.Connection, rules: Dict[str, Any]) -> int:
+    """이미 저장된 공지와 공지에서 나온 항목(준비물·등하원 변경·행사·기록)도 같은 규칙으로 가린다. 바뀐 공지 수를 돌려준다.
+
+    가린 뒤에는 되돌릴 수 없다. 호출자는 트랜잭션 안에서 부른다.
+    """
+    if not privacy.active(rules):
+        return 0
+    changed = 0
+    for r in conn.execute("SELECT id, digest, original_text FROM notices").fetchall():
+        dg = json.loads(r["digest"])
+        new_dg = privacy.mask_digest(dg, rules)
+        new_orig = privacy.mask_text(r["original_text"], rules)
+        if new_dg != dg or new_orig != r["original_text"]:
+            conn.execute("UPDATE notices SET digest=?, title=?, original_text=? WHERE id=?",
+                         (json.dumps(new_dg, ensure_ascii=False), new_dg["title"], new_orig, r["id"]))
+            changed += 1
+    for r in conn.execute("SELECT id, snapshot FROM notice_history WHERE snapshot IS NOT NULL").fetchall():
+        snap = json.loads(r["snapshot"])
+        new = privacy.mask_value(snap, rules)
+        if new != snap:
+            conn.execute("UPDATE notice_history SET snapshot=? WHERE id=?", (json.dumps(new, ensure_ascii=False), r["id"]))
+    for table, col in (("prep_items", "text"), ("commute_exceptions", "note"), ("notice_events", "title")):
+        for r in conn.execute(f"SELECT id, {col} AS v FROM {table} WHERE notice_id IS NOT NULL AND {col} IS NOT NULL").fetchall():
+            new = privacy.mask_text(r["v"], rules)
+            if new != r["v"]:
+                conn.execute(f"UPDATE {table} SET {col}=? WHERE id=?", (new, r["id"]))
+    return changed
+
+
 def notice_json(r: sqlite3.Row, include_original: bool = False) -> Dict[str, Any]:
     dg = json.loads(r["digest"])
     out = {
@@ -570,11 +625,12 @@ def create_notice(conn: sqlite3.Connection, body: Dict[str, Any], actor: str, *,
     if not isinstance(chash, str) or not re.fullmatch(r"[0-9a-f]{64}", chash):
         raise StoreError(400, "VALIDATION_ERROR", "contentHash(sha-256 hex)가 필요해요.")
     source_id = _s(body.get("sourceId"), 80) or None
-    dg = clean_digest(body.get("digest"))
     settings = get_settings(conn)
+    rules = privacy.rules_from(settings)
+    dg = privacy.mask_digest(clean_digest(body.get("digest")), rules)
     original = body.get("originalText")
     store_original = isinstance(original, str) and original.strip() and (settings["notices"]["storeOriginal"] or (allow_store_original and body.get("storeOriginal") is True))
-    original_text = original.strip()[:20000] if store_original else None
+    original_text = privacy.mask_text(original.strip()[:20000], rules) if store_original else None
     with _tx(conn):
         dup = None
         if source_id:
@@ -623,7 +679,7 @@ def list_notices(conn: sqlite3.Connection, status: Optional[str] = None) -> List
 def update_notice(conn: sqlite3.Connection, nid: str, body: Dict[str, Any], actor: str) -> Dict[str, Any]:
     if not isinstance(body, dict) or not isinstance(body.get("baseVersion"), int):
         raise StoreError(400, "VALIDATION_ERROR", "baseVersion과 digest가 필요해요.")
-    dg = clean_digest(body.get("digest"))
+    dg = privacy.mask_digest(clean_digest(body.get("digest")), privacy.rules_from(get_settings(conn)))
     received = _opt_date(body.get("receivedOn"))
     with _tx(conn):
         r = conn.execute("SELECT * FROM notices WHERE id = ? AND deleted_at IS NULL", (nid,)).fetchone()

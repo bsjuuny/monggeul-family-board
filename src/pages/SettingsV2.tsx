@@ -31,10 +31,11 @@ function useSave() {
   const toast = useToast();
   return useMutation({
     mutationFn: ({ key, value, version }: { key: SettingKey; value: unknown; version: number }) => v2.putSetting(key, value, version),
-    onSuccess: async () => {
-      toast.info('저장했어요.');
+    onSuccess: async (r) => {
+      toast.info(r.maskedNotices ? `저장했어요. 이미 있던 공지 ${r.maskedNotices}건도 가렸어요.` : '저장했어요.');
       await qc.invalidateQueries({ queryKey: ['v2settings'] });
       await qc.invalidateQueries({ queryKey: ['board'] });
+      if (r.maskedNotices) await qc.invalidateQueries({ queryKey: ['notices'] });
     },
     onError: async (e) => {
       toast.error(isFamilyBoardError(e) ? e.message : '저장하지 못했어요.');
@@ -287,6 +288,31 @@ function NoticeSyncSection({ s }: { s: Settings }) {
   );
 }
 
+/** 공지를 저장하기 전에 연락처·다른 사람 이름을 가린다(서버 privacy.py 가 실제로 가림) */
+function PrivacySection({ s }: { s: Settings }) {
+  const save = useSave();
+  const p = s.privacy ?? { maskContacts: true, maskNames: [] };
+  const [contacts, setContacts] = useState(p.maskContacts);
+  const [names, setNames] = useState(p.maskNames.join('\n'));
+  useEffect(() => { setContacts(p.maskContacts); setNames(p.maskNames.join('\n')); }, [p.maskContacts, p.maskNames, s._versions.privacy]);
+  const list = [...new Set(names.split(/[\n,]/).map((n) => n.trim()).filter(Boolean))];
+  const tooShort = list.filter((n) => n.length < 2);
+  return (
+    <Section id="set-privacy" title="🔒 공지 개인정보 가리기">
+      <p className="muted">공지·알림장에는 선생님이나 다른 아이·보호자 정보가 섞일 수 있어요. 보드에 저장하기 전에 아래 정보를 가려요. 가린 내용은 되돌릴 수 없어요.</p>
+      <label className="check"><input type="checkbox" checked={contacts} onChange={(e) => setContacts(e.target.checked)} /> 전화번호·이메일 자동으로 가리기</label>
+      <div className="field">
+        <label htmlFor="privacy-names">가릴 이름(한 줄에 하나, 2글자 이상)</label>
+        <textarea id="privacy-names" rows={4} value={names} placeholder={'예:\n김선생\n민준\n서아 어머니'} onChange={(e) => setNames(e.target.value)} />
+        <span className="hint">다른 아이·선생님 이름을 넣으면 공지에서 ○○로 바뀌어요(예: 민준이가 → ○○이가). 우리 아이 이름은 넣지 마세요. 저장하면 이미 있는 공지에도 바로 적용돼요.</span>
+        {tooShort.length > 0 && <span className="err">한 글자 이름은 다른 낱말까지 가릴 수 있어 넣을 수 없어요: {tooShort.join(', ')}</span>}
+      </div>
+      <button type="button" className="btn" data-testid="privacy-save" disabled={save.isPending || tooShort.length > 0}
+        onClick={() => save.mutate({ key: 'privacy', value: { maskContacts: contacts, maskNames: list }, version: s._versions.privacy ?? 0 })}>가리기 저장</button>
+    </Section>
+  );
+}
+
 function UpdateSection() {
   const toast = useToast();
   return (
@@ -307,6 +333,7 @@ export function V2SettingsSections() {
       <ScreenSection s={q.data} />
       <TvSection s={q.data} />
       <NoticeSyncSection s={q.data} />
+      <PrivacySection s={q.data} />
       <UpdateSection />
     </>
   );
