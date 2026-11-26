@@ -144,8 +144,14 @@ test('공지톡 내보내기 파일 가져오기: 미리보기 → 가져오기 
   const card = page.getByRole('region', { name: '가져오기 미리보기' });
   await expect(card).toContainText('새 공지 1건');
   await expect(card).toContainText('형식 오류 1건');
+  await expect(card).toContainText(kst(1));
+  await page.getByLabel('내보내기 파일').setInputFiles({ name: 'invalid.json', mimeType: 'application/json', buffer: Buffer.from('{bad') });
+  await expect(page.getByRole('alert')).toContainText('다시 골라 주세요');
+  await expect(card).toHaveCount(0);
+  await page.getByLabel('내보내기 파일').setInputFiles(file);
   await card.getByRole('button', { name: '1건 가져오기' }).click();
   await expect(page.getByRole('region', { name: '가져오기 미리보기' })).toContainText('새로 1건');
+  await expect(page.getByRole('link', { name: '가져온 공지 보기' })).toBeVisible();
   const list = await (await page.request.get('/api/notices')).json();
   const mine = list.notices.find((n: { sourceId: string }) => n.sourceId === `notice-${stamp}`);
   expect(mine).toMatchObject({ source: 'gongjitalk', hasOriginal: false, title: '수영 수업' });

@@ -259,10 +259,15 @@ a.v2-notice:hover { background: var(--v2-accent-soft); }
   .v2-board__inner, .v2-board__inner.has-banner { height: auto; min-height: 100dvh; display: flex; flex-direction: column; }
   .v2-hero { display: flex; flex-direction: column; }
   .v2-greet { padding: 14px 16px; }
+  .v2-board[data-variant="home"] .v2-greet__hello { padding-inline-end: 96px; white-space: normal; overflow-wrap: anywhere; }
   .v2-scene { aspect-ratio: 2.4 / 1; }
   .v2-char { transform-origin: bottom; }
   .v2-cards, .v2-side { display: contents; }
   .v2-commute { order: 1; } .v2-weather { order: 2; } .v2-notices { order: 3; } .v2-prep { order: 4; }
+  .v2-board[data-prep-first="true"] .v2-prep { order: 1; }
+  .v2-board[data-prep-first="true"] .v2-commute { order: 2; }
+  .v2-board[data-prep-first="true"] .v2-weather { order: 3; }
+  .v2-board[data-prep-first="true"] .v2-notices { order: 4; }
   .v2-card { min-height: auto; overflow: visible; }
   .v2-period button { flex: 1; min-width: 0; }
   .v2-menu-btn { position: absolute; top: 12px; right: 12px; }
