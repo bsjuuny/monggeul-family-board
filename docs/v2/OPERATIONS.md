@@ -2,42 +2,45 @@
 
 대상: 거실 Android 태블릿(Termux)에서 도는 태블릿 서버. 같은 Wi-Fi 전용, HTTP, 포트 8787.
 
-## 1. v1 → v2 업그레이드 절차 (운영 DB 보존)
+## 1. 태블릿 배포와 되돌리기 (운영 DB 보존)
 
-운영 중인 태블릿에서 **직접** 한다. 각 단계 결과를 보고 다음으로 넘어간다.
+운영 태블릿의 Termux에서 직접 실행한다. 단계가 실패하면 다음 단계로 넘어가지 않는다.
+
+1. 현재 서버가 수동 실행인지 Termux:Boot인지 확인한다. 수동이면 서버가 열린 터미널에서 종료한다. 자동이면 **재시작 루프를 먼저 중지한 다음** 해당 Python 서버만 멈춘다. Python만 종료하면 약 10초 후 자동으로 다시 뜬다.
+2. 기존 체크아웃의 브랜치와 커밋을 확인한다. `git status --short`에 변경이 있거나 실행 중인 서버의 DB 경로(`--db` / `MGFB_DB`)가 확인되지 않으면 중단한다. `main`은 이미 v2이므로 v1 복구 기준이 아니다.
+3. 현재 빌드와 SQLite를 같은 백업 폴더에 보관한다. 아래의 `db`는 기본값이므로 실제 경로가 다른 경우 먼저 수정한다. SQLite 온라인 백업을 사용해 WAL에 반영된 데이터도 포함한다. 백업은 Git 저장소 밖에 보관한다.
 
 ```sh
-# 0) 서버 끄기(Termux 창에서 Ctrl+C, 또는 Termux:Boot 루프면 pkill -f tablet_server/app.py)
-cd ~/monggeul-family-board
-
-# 1) 운영 DB 수동 백업 (업그레이드 도구도 자동 백업하지만 한 벌 더 둔다)
-mkdir -p ~/monggeul-family-board-data/manual-backups
-cp ~/monggeul-family-board-data/family.sqlite3 ~/monggeul-family-board-data/manual-backups/family-$(date +%Y%m%d-%H%M).sqlite3
-
-# 2) 새 코드 받기
-git fetch origin && git checkout v2 && git pull --ff-only
-npm ci && npm run build          # dist/ 와 dist-server/analyze.mjs(서버 공지 분석기) 생성
-
-# 3) 운영 DB를 건드리지 않는 시험 적용 (사본에만 적용하고 결과만 출력)
-python tablet_server/app.py --migrate-dry-run
-#   기대: "스키마 v1 → v2, 새 테이블 N개, 기존 테이블 행 수 변화 없음, integrity_check=ok"
-
-# 4) 실제 시작: 서버가 시작하면서 v2 마이그레이션을 적용한다.
-#    적용 직전 DB 전체를 ~/monggeul-family-board-data/backups/pre-migrate-v1-to-v2-<시각>.sqlite3 로 복사한다.
-python tablet_server/app.py --host 0.0.0.0 --port 8787
+cd "$HOME/monggeul-family-board"
+umask 077
+db="$HOME/monggeul-family-board-data/family.sqlite3"
+backup="$HOME/monggeul-family-board-data/manual-backups/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$(dirname "$backup")" && mkdir "$backup" &&
+  git rev-parse HEAD > "$backup/commit.txt" &&
+  git branch --show-current > "$backup/branch.txt" &&
+  cp -a dist "$backup/" && { [ ! -d dist-server ] || cp -a dist-server "$backup/"; } &&
+  python - "$db" "$backup/family.sqlite3" <<'PY'
+import sqlite3, sys
+from contextlib import closing
+from pathlib import Path
+src, dst = map(Path, sys.argv[1:])
+with closing(sqlite3.connect(src.resolve().as_uri() + '?mode=ro', uri=True)) as inp:
+    with closing(sqlite3.connect(dst)) as out:
+        inp.backup(out)
+        assert out.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+PY
 ```
+
+4. `git fetch origin` 후 **배포 승인된 커밋**과 현재 커밋을 확인하고, `git merge --ff-only <배포커밋>`으로 반영한다. fast-forward가 실패하면 강제 덮어쓰지 않는다. `npm ci && npm run build`가 성공했는지 확인한다.
+5. v1에서 처음 올라가는 경우만 같은 DB 경로를 지정해 `python tablet_server/app.py --db "$db" --migrate-dry-run`을 실행한다. 기존 행 수 유지와 `integrity_check=ok`를 확인한다. 서버 시작 시 실제 마이그레이션이 적용되며, 마이그레이션 직전 백업도 자동으로 생성된다.
+6. 기존 실행 방식으로 서버를 다시 띄운다. 휴대폰·TV에서 새로고침한 뒤 기존 가족 데이터, 공지 상세의 날짜와 시간을 확인한다.
 
 ### 실패하면
 
-- 마이그레이션은 한 트랜잭션이라 실패하면 DB는 손대기 전 그대로다. 서버가 `DB 업그레이드 실패` 와 되돌리기 명령을 출력하고 멈춘다.
-- 그래도 되돌려야 하면(서버를 끈 상태에서):
+- 서버와 자동 재시작 루프를 다시 멈춘다. 현재 상태도 따로 보관한 뒤, 위 백업의 `commit.txt`에 있는 **원래 커밋**과 보관한 `dist/`, `dist-server/`로 복구한다. 브랜치 이름 대신 실제 커밋을 쓴다.
+- DB 스키마가 그대로라면 DB는 복원하지 않는다. v1→v2 전환을 되돌리는 등 DB 복원이 꼭 필요한 경우에만, 전환 이후 추가된 데이터가 사라질 수 있음을 확인하고 복원한다. 기존 DB는 `--restore-db`가 `family.sqlite3.before-restore-<시각>`으로 보관한다.
+- 복구 후 원래 실행 방식으로 서버를 띄우고 기존 데이터가 표시되는지 확인한다.
 
-```sh
-python tablet_server/app.py --restore-db ~/monggeul-family-board-data/backups/pre-migrate-v1-to-v2-<시각>.sqlite3
-git checkout main && npm ci && npm run build   # v1 코드로 돌아가기
-```
-
-`--restore-db` 는 현재 DB를 `family.sqlite3.before-restore-<시각>` 으로 남긴 뒤 백업으로 바꾼다.
 
 ## 2. v2 처음 설정 순서
 
