@@ -16,7 +16,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const seq = useRef(0);
   const push = useCallback((text: string, kind: Toast['kind']) => {
     const id = ++seq.current;
-    setList((l) => [...l.slice(-3), { id, text, kind }]);
+    // 연속 성공 안내는 최신 한 건만 유지하고, 이전 오류는 바로 덮지 않는다.
+    setList((list) => [...list.filter((toast) => toast.kind === 'error').slice(-1), { id, text, kind }]);
     setTimeout(() => setList((l) => l.filter((t) => t.id !== id)), kind === 'error' ? 7000 : 4500);
   }, []);
   const api = useMemo<ToastApi>(() => ({ info: (t) => push(t, 'info'), error: (t) => push(t, 'error') }), [push]);

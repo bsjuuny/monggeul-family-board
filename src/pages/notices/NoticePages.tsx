@@ -1,5 +1,5 @@
 // 공지 정리: 목록, 붙여넣기·분석, 상세(확인·수정·삭제·캘린더), 공지톡 가져오기
-import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePageTitle, useServices, useSession } from '../../app/context';
@@ -241,14 +241,14 @@ export function NoticeDetailPage() {
     await qc.invalidateQueries({ queryKey: ['board'] });
     await qc.invalidateQueries({ queryKey: ['data'] });
   };
-  const calendar = async (createMissing: boolean) => {
+  const calendar = async (createMissing: boolean, summary = '') => {
     try {
       const r = await syncNoticeCalendar(v2, repo, id, createMissing);
       const parts = [r.created && `${r.created}개 추가`, r.updated && `${r.updated}개 갱신`, r.removed && `${r.removed}개 삭제`].filter(Boolean);
-      if (parts.length) toast.info(`캘린더 일정을 ${parts.join(', ')}했어요.`);
-      if (r.keptUserEdits) toast.info('캘린더에서 직접 고친 일정은 그대로 두었어요.');
+      const message = [summary, parts.length ? `캘린더 일정을 ${parts.join(', ')}했어요.` : '', r.keptUserEdits ? '직접 고친 일정은 그대로 두었어요.' : ''].filter(Boolean).join(' ');
+      if (message) toast.info(message);
     } catch (e) {
-      toast.error(errMsg(e, '캘린더에 반영하지 못했어요.'));
+      toast.error([summary, errMsg(e, '캘린더에 반영하지 못했어요.')].filter(Boolean).join(' '));
     }
   };
   const act = useMutation({
@@ -269,9 +269,8 @@ export function NoticeDetailPage() {
     onSuccess: async (_r, kind) => {
       await refresh();
       if (kind === 'delete') { toast.info('공지를 지웠어요.'); navigate('/notices', { replace: true }); return; }
-      if (kind === 'save') { setEditing(null); toast.info('고친 내용을 저장했어요.'); }
-      if (kind === 'confirm') toast.info('확인했어요. 보드에 확정으로 표시해요.');
-      if (kind === 'confirm' || kind === 'save') await calendar(true);
+      if (kind === 'save') { setEditing(null); await calendar(true, '고친 내용을 저장했어요.'); }
+      if (kind === 'confirm') await calendar(true, '공지를 확인했어요.');
       if (kind === 'dismiss') await calendar(false);
     },
     onError: async (e) => {
@@ -310,6 +309,7 @@ export function NoticeDetailPage() {
         <section className="card"><DigestView d={n.digest} /></section>
       )}
       {!editing && (
+        <>
         <div className="btn-row">
           {(n.status === 'needs_review' || n.status === 'auto') && <button type="button" className="btn" disabled={act.isPending} onClick={() => act.mutate('confirm')} data-testid="notice-confirm">확인</button>}
           {n.status !== 'pending_analysis' && <button type="button" className="btn secondary" onClick={() => setEditing(structuredClone(n.digest))}>수정</button>}
@@ -317,8 +317,11 @@ export function NoticeDetailPage() {
           {n.status === 'confirmed' && <button type="button" className="btn ghost" onClick={() => void calendar(true)}>캘린더에 반영</button>}
           <button type="button" className="btn ghost" onClick={() => void v2.noticeHistory(n.id).then((h) => setHistory(h.history))}>기록</button>
           {n.hasOriginal && <button type="button" className="btn ghost" onClick={() => void v2.notice(n.id, true).then((x) => setOriginal(x.originalText ?? ''))}>원문</button>}
-          <button type="button" className="btn danger" onClick={() => setConfirmDelete(true)}>삭제</button>
         </div>
+        <div className="notice-detail__delete">
+          <button type="button" className="btn ghost" disabled={act.isPending} onClick={() => setConfirmDelete(true)}>삭제</button>
+        </div>
+        </>
       )}
       {original !== null && <section className="card"><h2>원문</h2><p style={{ whiteSpace: 'pre-wrap' }}>{original}</p></section>}
       {history && (
@@ -346,35 +349,58 @@ export function NoticeImportPage() {
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof v2.importNotices>> | null>(null);
   const [done, setDone] = useState<Awaited<ReturnType<typeof v2.importNotices>> | null>(null);
   const [error, setError] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [previewing, setPreviewing] = useState(false);
+  const request = useRef(0);
 
-  const prepare = async (list: unknown[], keep: boolean) => {
+  const resetPreview = () => {
     setError('');
+    setPreview(null);
     setDone(null);
-    const conv = list.map((x) => fromGongjitalk(x, keep));
-    const ok = conv.filter((c): c is { ok: true; body: Record<string, unknown> } => c.ok).map((c) => c.body);
-    setItems(ok);
-    setBad(conv.length - ok.length);
-    try {
-      setPreview(ok.length ? await v2.importNotices(ok, true) : null);
-    } catch (e) {
-      setError(errMsg(e, '미리보기를 만들지 못했어요.'));
-    }
+    setItems([]);
+    setBad(0);
+    setPreviewing(true);
   };
-  const onText = async (text: string) => {
+  const prepare = async (list: unknown[], keep: boolean, id: number) => {
     try {
-      const data = JSON.parse(text) as unknown;
-      const list = Array.isArray(data) ? data : data && typeof data === 'object' && Array.isArray((data as { notices?: unknown }).notices) ? (data as { notices: unknown[] }).notices : null;
-      if (!list) throw new Error('shape');
-      setRaw(list);
-      await prepare(list, keepOriginal);
-    } catch {
-      setError('공지톡 내보내기 파일(JSON)이 아니에요.');
-      setPreview(null);
+      const conv = list.map((x) => fromGongjitalk(x, keep));
+      const ok = conv.filter((c): c is { ok: true; body: Record<string, unknown> } => c.ok).map((c) => c.body);
+      const next = ok.length ? await v2.importNotices(ok, true) : null;
+      if (request.current !== id) return;
+      setPreview(next);
+      setItems(ok);
+      setBad(conv.length - ok.length);
+    } catch (e) {
+      if (request.current === id) setError(errMsg(e, '미리보기를 만들지 못했어요.'));
+    } finally {
+      if (request.current === id) setPreviewing(false);
     }
   };
   const onFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) await onText(await f.text());
+    if (!f) return;
+    e.target.value = '';
+    const id = ++request.current;
+    setFileName(f.name);
+    setRaw(null);
+    resetPreview();
+    try {
+      const data = JSON.parse(await f.text()) as unknown;
+      if (request.current !== id) return;
+      const list = Array.isArray(data) ? data : data && typeof data === 'object' && Array.isArray((data as { notices?: unknown }).notices) ? (data as { notices: unknown[] }).notices : null;
+      if (!list) throw new Error('shape');
+      if (!list.length) {
+        setError('파일에 옮길 공지가 없어요. 공지톡 저장함에서 다시 내보내 주세요.');
+        setPreviewing(false);
+        return;
+      }
+      setRaw(list);
+      await prepare(list, keepOriginal, id);
+    } catch {
+      if (request.current !== id) return;
+      setError('공지톡 저장함에서 받은 JSON 파일을 다시 골라 주세요.');
+      setPreviewing(false);
+    }
   };
   const commit = useMutation({
     mutationFn: () => v2.importNotices(items, false),
@@ -390,17 +416,43 @@ export function NoticeImportPage() {
   return (
     <div className="stack" data-testid="notice-import">
       <Link className="back-link" to="/notices">← 공지 목록</Link>
-      <h1>공지톡에서 가져오기</h1>
-      <p className="muted">공지톡 정리함의 <strong>저장함 → 내보내기</strong>로 받은 JSON 파일을 고르세요. 공지톡에 저장된 내용은 바뀌지 않아요. 받은 날은 공지톡에서 분석한 날로 계산해요.</p>
-      <div className="field"><label htmlFor="imp-file">내보내기 파일</label><input id="imp-file" type="file" accept="application/json,.json" onChange={(e) => void onFile(e)} /></div>
-      {isOwner && <label className="check"><input type="checkbox" checked={keepOriginal} onChange={(e) => { setKeepOriginal(e.target.checked); if (raw) void prepare(raw, e.target.checked); }} /> 공지 원문도 태블릿에 저장(기본: 저장 안 함, owner만)</label>}
+      <header className="notice-import-intro">
+        <h1>공지톡에서 가져오기</h1>
+        <p>공지톡 <strong>저장함 → 내보내기</strong>에서 받은 파일을 골라 주세요.</p>
+      </header>
+      <div className="notice-import-file">
+        <label className="btn secondary notice-import-file__button" htmlFor="imp-file">
+          {fileName ? '다른 파일 선택' : '공지톡 파일 선택'}
+          <input id="imp-file" type="file" aria-label="내보내기 파일" accept="application/json,.json" disabled={commit.isPending} onChange={(e) => void onFile(e)} />
+        </label>
+        <span className="notice-import-file__name" aria-live="polite">{fileName || '선택한 파일이 없어요'}</span>
+      </div>
+      {isOwner && <label className="check"><input type="checkbox" checked={keepOriginal} disabled={previewing || commit.isPending} onChange={(e) => {
+        const keep = e.target.checked;
+        setKeepOriginal(keep);
+        if (raw) {
+          resetPreview();
+          void prepare(raw, keep, ++request.current);
+        }
+      }} /> 공지 원문도 저장하기</label>}
+      <p className="muted">기본으로 요약만 가져와요. ‘내일’ 같은 날짜는 공지톡에서 분석한 날을 기준으로 계산하니 미리보기에서 확인해 주세요.</p>
+      {previewing && <p role="status">미리보기를 만드는 중이에요…</p>}
+      {!result && bad > 0 && <p className="err" role="alert">가져올 수 있는 공지가 없어요. 형식 오류 {bad}건이에요.</p>}
       {error && <p className="err" role="alert">{error}</p>}
       {result && (
-        <section className="card" aria-label="가져오기 미리보기">
+        <section className="card notice-import-preview" aria-label="가져오기 미리보기">
           <h2>{done ? '가져오기 결과' : '미리보기'}</h2>
-          <p>{done ? `새로 ${done.summary.created ?? 0}건` : `새 공지 ${result.summary.new ?? 0}건`} · 이미 있음 {result.summary.duplicate ?? 0}건 · 형식 오류 {(result.summary.invalid ?? 0) + bad}건</p>
-          <ul className="list">{result.results.map((r) => <li key={r.index}><span className="chip">{({ new: '새 공지', created: '가져옴', duplicate: '이미 있음', invalid: '건너뜀' } as Record<string, string>)[r.status]}</span> {r.title ?? r.error}</li>)}</ul>
-          {!done && <button type="button" className="btn" disabled={commit.isPending || !(result.summary.new ?? 0)} onClick={() => commit.mutate()}>{commit.isPending ? '가져오는 중…' : `${result.summary.new ?? 0}건 가져오기`}</button>}
+          <p className="notice-import-summary">{done ? `새로 ${done.summary.created ?? 0}건` : `새 공지 ${result.summary.new ?? 0}건`} · 이미 있음 {result.summary.duplicate ?? 0}건 · 형식 오류 {(result.summary.invalid ?? 0) + bad}건</p>
+          <ul className="list">{result.results.map((r) => {
+            const digest = items[r.index]?.digest as NoticeDigest | undefined;
+            return <li key={r.index} className="notice-import-result">
+              <span className="chip">{({ new: '새 공지', created: '가져옴', duplicate: '이미 있음', invalid: '건너뜀' } as Record<string, string>)[r.status]}</span>
+              <span>{r.title ?? r.error}{r.status !== 'invalid' && digest?.eventDate && <small className="muted">{digest.eventDate}{digest.eventTime ? ` ${digest.eventTime}` : ''}</small>}</span>
+            </li>;
+          })}</ul>
+          <div className="notice-import-actions">
+            {done ? <Link className="btn secondary" to="/notices">가져온 공지 보기</Link> : <button type="button" className="btn" disabled={commit.isPending || !(result.summary.new ?? 0)} onClick={() => commit.mutate()}>{commit.isPending ? '가져오는 중…' : `${result.summary.new ?? 0}건 가져오기`}</button>}
+          </div>
         </section>
       )}
     </div>

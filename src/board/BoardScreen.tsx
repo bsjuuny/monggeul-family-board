@@ -277,6 +277,12 @@ function WeatherCard({ board, period, interactive }: { board: Board; period: Per
   );
 }
 
+function noticeTimeKo(time?: string | null) {
+  if (!time || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return '';
+  const hour = Number(time.slice(0, 2)); const minute = Number(time.slice(3));
+  return `${hour < 12 ? '오전' : '오후'} ${hour % 12 || 12}시${minute ? ` ${minute}분` : ''}`;
+}
+
 function NoticePeek({ n, today, onClose }: { n: NoticeCardData; today: string; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   useDialog(true, closeRef, onClose);
@@ -289,7 +295,7 @@ function NoticePeek({ n, today, onClose }: { n: NoticeCardData; today: string; o
           {n.status === 'needs_review' && <Badge tone="warning" icon="alert">확인 필요</Badge>}
           {n.needsReply && <Badge tone="reply" icon="chat">답장 필요</Badge>}
         </p>
-        {n.eventDate && <p className="v2-peek__line"><Icon name="calendar" size={20} />{shortDateKo(n.eventDate, today)} · {dateKo(n.eventDate)}</p>}
+        {n.eventDate && <p className="v2-peek__line"><Icon name="calendar" size={20} />{shortDateKo(n.eventDate, today)} · {dateKo(n.eventDate)}{noticeTimeKo(n.eventTime) && ` · ${noticeTimeKo(n.eventTime)}`}</p>}
         {n.reviewReasons.length > 0 && <p className="v2-peek__line"><Icon name="alert" size={20} />확인할 것: {n.reviewReasons.join(', ')}</p>}
         <p className="v2-muted">자세한 내용과 확인은 보호자 휴대폰의 '공지 정리'에서 할 수 있어요.</p>
       </div>
@@ -323,7 +329,7 @@ function NoticeCard({ board, interactive }: { board: Board; interactive: boolean
                   {n.needsReply && <Badge tone="reply" icon="chat">답장 필요</Badge>}
                 </span>
                 <strong className="v2-notice__title">{n.title}</strong>
-                <span className="v2-notice__sub">{n.eventDate ? `${shortDateKo(n.eventDate, board.today)} · ` : ''}{n.reviewReasons.length ? n.reviewReasons.join(' · ') : `${shortDateKo(n.receivedOn, board.today)} 받은 공지`}</span>
+                <span className="v2-notice__sub">{n.eventDate ? `${shortDateKo(n.eventDate, board.today)}${noticeTimeKo(n.eventTime) ? ` ${noticeTimeKo(n.eventTime)}` : ''} · ` : ''}{n.reviewReasons.length ? n.reviewReasons.join(' · ') : `${shortDateKo(n.receivedOn, board.today)} 받은 공지`}</span>
               </>
             );
             return <li key={n.id} data-testid="board-notice">{interactive ? <Link className="v2-notice" to={`/notices/${n.id}`}>{inner}</Link> : <button type="button" className="v2-notice v2-notice--peek" onClick={() => setPeek(n)}>{inner}</button>}</li>;
@@ -393,6 +399,16 @@ export interface BoardScreenProps {
 export function BoardScreen({ board, now, variant, online, menu, onTogglePrep, onPickupDone, testId = 'v2-board' }: BoardScreenProps) {
   const [period, setPeriod] = usePeriod(board, now);
   const interactive = variant === 'home';
+  const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 600px)').matches);
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 600px)');
+    const update = () => setCompact(query.matches);
+    if (query.addEventListener) query.addEventListener('change', update);
+    else query.addListener(update);
+    return () => { if (query.removeEventListener) query.removeEventListener('change', update); else query.removeListener(update); };
+  }, []);
+  const prepFirst = interactive && compact && period === 'evening';
+  const prep = <PrepCard board={board} period={period} interactive={interactive} onToggle={onTogglePrep} />;
   const wide = typeof window !== 'undefined' ? window.innerWidth >= 1100 : true;
   const w = board.weather;
   const weatherStale = w.configured && w.available && w.stale;
@@ -419,7 +435,7 @@ export function BoardScreen({ board, now, variant, online, menu, onTogglePrep, o
   const scene = { morning: 'scene-morning', afternoon: 'scene-afternoon', evening: 'scene-evening' }[period];
 
   return (
-    <div className="v2-board" data-period={period} data-variant={variant} data-testid={testId} onKeyDown={onBoardArrows}
+    <div className="v2-board" data-period={period} data-variant={variant} data-prep-first={prepFirst ? 'true' : undefined} data-testid={testId} onKeyDown={onBoardArrows}
       style={{ ['--v2-paper' as string]: `url("${new URL(`${import.meta.env.BASE_URL}art/board/paper-texture.webp`, document.baseURI).href}")` }}>
       <div className={`v2-board__inner${banner ? ' has-banner' : ''}`}>
         {banner && <div className={`v2-banner v2-banner--${banner.tone}`} role="status" data-testid="v2-banner"><Icon name={banner.icon} size={20} />{banner.text}</div>}
@@ -439,11 +455,12 @@ export function BoardScreen({ board, now, variant, online, menu, onTogglePrep, o
           </div>
         </header>
         <div className="v2-cards">
+          {prepFirst && prep}
           <CommuteCard board={board} period={period} now={now} interactive={interactive} onPickupDone={onPickupDone} />
           <WeatherCard board={board} period={period} interactive={interactive} />
           <div className="v2-side">
             <NoticeCard board={board} interactive={interactive} />
-            <PrepCard board={board} period={period} interactive={interactive} onToggle={onTogglePrep} />
+            {!prepFirst && prep}
           </div>
         </div>
       </div>

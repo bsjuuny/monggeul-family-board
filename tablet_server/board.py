@@ -62,7 +62,8 @@ def _family_doc(conn: sqlite3.Connection) -> Optional[Dict[str, Any]]:
 def _notice_card(n: Dict[str, Any]) -> Dict[str, Any]:
     dg = n["digest"]
     return {"id": n["id"], "title": n["title"], "status": n["status"], "reviewReasons": n["reviewReasons"],
-            "receivedOn": n["receivedOn"], "eventDate": dg.get("eventDate"), "needsReply": dg.get("needsReply", False),
+            "receivedOn": n["receivedOn"], "eventDate": dg.get("eventDate"), "eventTime": dg.get("eventTime"),
+            "needsReply": dg.get("needsReply", False),
             "source": n["source"]}
 
 

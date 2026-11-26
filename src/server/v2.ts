@@ -81,6 +81,7 @@ export interface NoticeCard {
   reviewReasons: string[];
   receivedOn: string;
   eventDate: string | null;
+  eventTime?: string | null;
   needsReply: boolean;
   source: string;
 }

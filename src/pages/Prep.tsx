@@ -48,10 +48,12 @@ export function PrepPage() {
     else byDate.set(p.date, [...(byDate.get(p.date) ?? []), p]);
   }
   const Item = ({ p }: { p: PrepItem }) => (
-    <li className={`prep-row${p.doneAt ? ' is-done' : ''}`}>
-      <label className="check"><input type="checkbox" checked={Boolean(p.doneAt)} onChange={() => toggle.mutate(p)} aria-label={`${p.text} 챙김`} /> {p.text}</label>
+    <li className={`prep-row prep-row--item${p.doneAt ? ' is-done' : ''}`}>
+      <div className="prep-row__body">
+      <label className="check prep-row__check"><input type="checkbox" checked={Boolean(p.doneAt)} onChange={() => toggle.mutate(p)} aria-label={`${p.text} 챙김`} /> {p.text}</label>
       <small className="muted">{KIND_LABEL[p.kind]}{p.needsReview ? ' · 확인 필요' : ''}{p.noticeId ? <> · <Link to={`/notices/${p.noticeId}`}>{p.noticeTitle ?? '공지'}</Link></> : ''}{p.doneBy ? ` · ${p.doneBy} 확인` : ''}</small>
-      <button type="button" className="btn ghost small" onClick={() => remove.mutate(p)} aria-label={`${p.text} 지우기`}>✕</button>
+      </div>
+      <button type="button" className="btn ghost small prep-row__remove" onClick={() => remove.mutate(p)} aria-label={`${p.text} 지우기`}>✕</button>
     </li>
   );
   return (
