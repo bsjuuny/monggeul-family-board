@@ -603,6 +603,27 @@ def apply_privacy_existing(conn: sqlite3.Connection, rules: Dict[str, Any]) -> i
     return changed
 
 
+def notice_last_date(dg: Dict[str, Any]) -> Optional[str]:
+    """공지에 적힌 날짜(행사·마감·변경·준비물) 중 가장 늦은 날. 날짜가 하나도 없으면 None."""
+    found: List[str] = []
+    for k in ("eventDate", "eventEndDate"):
+        if dg.get(k):
+            found.append(dg[k])
+    for x in dg.get("dates") or []:
+        found += [v for v in (x.get("date"), x.get("endDate")) if v]
+    for k in ("dropoffChange", "pickupChange", "closure"):
+        c = dg.get(k) or {}
+        found += [v for v in (c.get("date"), c.get("endDate")) if v]
+    for k in ("supplies", "clothing", "documents", "parentTasks"):
+        found += [x["date"] for x in dg.get(k) or [] if x.get("date")]
+    return max(found) if found else None
+
+
+def notice_is_past(n: Dict[str, Any], today: str) -> bool:
+    """적힌 날짜가 모두 지난 공지는 끝난 것으로 본다(분석 대기·숨김은 제외)."""
+    return n["status"] not in ("pending_analysis", "dismissed") and bool(n["lastDate"]) and n["lastDate"] < today
+
+
 def notice_json(r: sqlite3.Row, include_original: bool = False) -> Dict[str, Any]:
     dg = json.loads(r["digest"])
     out = {
@@ -612,6 +633,7 @@ def notice_json(r: sqlite3.Row, include_original: bool = False) -> Dict[str, Any
         "confirmedAt": r["confirmed_at"], "confirmedBy": r["confirmed_by"],
         "reviewReasons": review_reasons(dg) if r["status"] != "pending_analysis" else [],
         "hasOriginal": r["original_text"] is not None,
+        "lastDate": notice_last_date(dg),
     }
     if include_original:
         out["originalText"] = r["original_text"]

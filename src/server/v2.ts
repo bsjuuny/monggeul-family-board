@@ -189,6 +189,8 @@ export interface Notice {
   confirmedAt: string | null;
   confirmedBy: string | null;
   reviewReasons: string[];
+  /** 공지에 적힌 가장 늦은 날짜. 이 날이 지나면 끝난 공지로 본다 */
+  lastDate?: string | null;
   hasOriginal: boolean;
   originalText?: string | null;
 }

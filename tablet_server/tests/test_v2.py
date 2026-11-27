@@ -748,6 +748,20 @@ class CommuteBoardTests(V2Server):
         self.assertIn(b["screen"]["mode"], ("morning", "afternoon", "evening"))
         self.assertTrue(b["commute"]["configured"])
 
+    def test_board_drops_notices_whose_dates_have_passed(self):
+        today = bs.today_kst()
+        past = bs.add_days(today, -2)
+        self.owner.request("POST", "/api/notices", notice_body("지난 일반", past, digest("지난 체험", event=past)))
+        self.owner.request("POST", "/api/notices", notice_body("지난 중요", past, digest("지난 휴원", closure={"date": past, "text": "휴원"})))
+        self.owner.request("POST", "/api/notices", notice_body("마감 남음", past, digest("마감 남은 공지", event=past, parentTasks=[{"text": "신청서", "deadline": today}])))
+        self.owner.request("POST", "/api/notices", notice_body("다가옴", today, digest("다가오는 체험", event=bs.add_days(today, 1))))
+        _, b, _ = self.owner.request("GET", "/api/board")
+        self.assertEqual(b["notices"]["needsReview"], 1)  # 마감이 남은 공지만 확인 필요로 남는다
+        self.assertEqual(sorted(n["title"] for n in b["notices"]["top"]), ["다가오는 체험", "마감 남은 공지"])
+        _, lst, _ = self.owner.request("GET", "/api/notices")
+        last = {n["title"]: n["lastDate"] for n in lst["notices"]}
+        self.assertEqual((last["지난 휴원"], last["마감 남은 공지"]), (past, today))
+
     def test_notice_event_link(self):
         today = bs.today_kst()
         _, res, _ = self.owner.request("POST", "/api/notices", notice_body("x", today, digest("발표회", event=bs.add_days(today, 1))))

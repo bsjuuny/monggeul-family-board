@@ -89,7 +89,8 @@ def build(conn: sqlite3.Connection, weather: Any, adapter: Any, viewer: Dict[str
     t_pick = min((p["pickupAt"] for p in attending_tomorrow), default=None)
     wx = weather.snapshot(conn, settings["location"], today, drop, pick, t_drop, t_pick)
 
-    notices = [n for n in bs.list_notices(conn) if n["status"] not in ("dismissed",)]
+    # 적힌 날짜가 모두 지난 공지는 끝난 것으로 보고 보드에서 뺀다(확인 필요였어도)
+    notices = [n for n in bs.list_notices(conn) if n["status"] not in ("dismissed",) and not bs.notice_is_past(n, today)]
     review = [n for n in notices if n["status"] in ("needs_review", "pending_analysis")]
     upcoming = sorted((n for n in notices if n["status"] in ("auto", "confirmed") and (n["digest"].get("eventDate") or "") >= today),
                       key=lambda n: n["digest"]["eventDate"])

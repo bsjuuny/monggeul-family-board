@@ -39,23 +39,27 @@ export function NoticesPage() {
   const groups = useMemo(() => {
     const all = q.data?.notices ?? [];
     const today = todayKst();
+    // 적힌 날짜가 모두 지난 공지는 끝난 것으로 본다(서버 board_store.notice_is_past 와 같은 기준)
+    const past = (n: Notice) => n.status !== 'pending_analysis' && n.status !== 'dismissed' && Boolean(n.lastDate) && n.lastDate! < today;
+    const live = all.filter((n) => !past(n));
     return {
-      review: all.filter((n) => n.status === 'needs_review' || n.status === 'pending_analysis'),
-      upcoming: all.filter((n) => (n.status === 'auto' || n.status === 'confirmed') && (n.digest.eventDate ?? '') >= today),
-      rest: all.filter((n) => (n.status === 'auto' || n.status === 'confirmed') && (n.digest.eventDate ?? '') < today),
+      review: live.filter((n) => n.status === 'needs_review' || n.status === 'pending_analysis'),
+      upcoming: live.filter((n) => (n.status === 'auto' || n.status === 'confirmed') && (n.digest.eventDate ?? '') >= today),
+      rest: live.filter((n) => (n.status === 'auto' || n.status === 'confirmed') && (n.digest.eventDate ?? '') < today),
+      done: all.filter(past),
       hidden: all.filter((n) => n.status === 'dismissed'),
     };
   }, [q.data]);
-  const section = (title: string, list: Notice[], testid: string) => list.length > 0 && (
+  const section = (title: string, list: Notice[], testid: string, done = false) => list.length > 0 && (
     <section className="card" aria-label={title} data-testid={testid}>
       <h2>{title} <span className="count-chip">{list.length}</span></h2>
       <ul className="list notice-list">
         {list.map((n) => (
           <li key={n.id}>
             <Link to={`/notices/${n.id}`} className="notice-row">
-              <span className="notice-row__top"><StatusChip status={n.status} />{n.digest.needsReply && <span className="chip">답장 필요</span>}<small>{SOURCE_LABEL[n.source]} · {n.receivedOn} 받음</small></span>
+              <span className="notice-row__top">{done ? <span className="chip notice-status notice-status--done">완료</span> : <StatusChip status={n.status} />}{!done && n.digest.needsReply && <span className="chip">답장 필요</span>}<small>{SOURCE_LABEL[n.source]} · {n.receivedOn} 받음</small></span>
               <strong>{n.title}</strong>
-              {n.reviewReasons.length > 0 && <small className="muted">확인할 것: {n.reviewReasons.join(', ')}</small>}
+              {!done && n.reviewReasons.length > 0 && <small className="muted">확인할 것: {n.reviewReasons.join(', ')}</small>}
               {n.digest.eventDate && <small className="muted">행사 {n.digest.eventDate}{n.digest.eventTime ? ` ${n.digest.eventTime}` : ''}</small>}
             </Link>
           </li>
@@ -82,7 +86,8 @@ export function NoticesPage() {
           {!q.data.notices.length && <p className="muted">아직 정리한 공지가 없어요. 어린이집 공지를 붙여넣어 보세요.</p>}
           {section('확인이 필요한 공지', groups.review, 'notices-review')}
           {section('다가오는 공지', groups.upcoming, 'notices-upcoming')}
-          {section('지난 공지', groups.rest, 'notices-rest')}
+          {section('그 밖의 공지', groups.rest, 'notices-rest')}
+          {section('날짜가 지난 공지', groups.done, 'notices-done', true)}
           {section('숨긴 공지', groups.hidden, 'notices-hidden')}
         </>
       )}
