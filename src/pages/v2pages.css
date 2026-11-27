@@ -5,6 +5,7 @@
 .notice-row__top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .notice-status--needs_review, .notice-status--pending_analysis { background: #fff0e8; color: #9a3d31; }
 .notice-status--confirmed { background: #eaf6ef; color: #2e6f55; }
+.notice-status--done { background: #eef0f2; color: #5b6470; }
 .notice-status--dismissed { background: #f1eff8; color: #746f86; }
 .banner.warn { background: #fff0e8; color: #9a3d31; border-color: #e9c4b8; }
 .digest-editor fieldset, .commute-child { border: 1px solid var(--color-line); border-radius: 14px; padding: 10px 12px; margin: 0; }
