@@ -31,7 +31,7 @@ with closing(sqlite3.connect(src.resolve().as_uri() + '?mode=ro', uri=True)) as 
 PY
 ```
 
-4. `git fetch origin` 후 **배포 승인된 커밋**과 현재 커밋을 확인하고, `git merge --ff-only <배포커밋>`으로 반영한다. fast-forward가 실패하면 강제 덮어쓰지 않는다. `npm ci && npm run build`가 성공했는지 확인한다.
+4. `git fetch origin` 후 **배포 승인된 커밋**과 현재 커밋을 확인하고, `git merge --ff-only <배포커밋>`으로 반영한다. fast-forward가 실패하면 강제 덮어쓰지 않는다. 태블릿에서는 `npx vite build`로 화면을 빌드한다(`npm run build`는 타입 검사·분석기 빌드까지 돌리므로 PC에서 쓴다). 공지 분석 코드(`src/notices/`)가 바뀐 커밋이면 `npx vite build --config vite.analyzer.config.ts`로 분석기(`dist-server/analyze.mjs`)도 다시 만든다. 의존성(`package-lock.json`)이 바뀐 경우에만 먼저 `npm ci`를 한다.
 5. v1에서 처음 올라가는 경우만 같은 DB 경로를 지정해 `python tablet_server/app.py --db "$db" --migrate-dry-run`을 실행한다. 기존 행 수 유지와 `integrity_check=ok`를 확인한다. 서버 시작 시 실제 마이그레이션이 적용되며, 마이그레이션 직전 백업도 자동으로 생성된다.
 6. 기존 실행 방식으로 서버를 다시 띄운다. 휴대폰·TV에서 새로고침한 뒤 기존 가족 데이터, 공지 상세의 날짜와 시간을 확인한다.
 
